@@ -1,0 +1,88 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: #1e2530 #0a0e14;
+  }
+
+  *::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  *::-webkit-scrollbar-track {
+    background: #0a0e14;
+  }
+
+  *::-webkit-scrollbar-thumb {
+    background: #1e2530;
+    border-radius: 3px;
+  }
+
+  *::-webkit-scrollbar-thumb:hover {
+    background: #2a3545;
+  }
+
+  ::selection {
+    background: rgba(57, 186, 230, 0.3);
+  }
+}
+
+@layer components {
+  .glass-panel {
+    @apply bg-terminal-surface/80 backdrop-blur-sm border border-terminal-border rounded-lg;
+  }
+
+  .status-dot {
+    @apply w-2 h-2 rounded-full inline-block;
+  }
+
+  .status-dot-running {
+    @apply bg-terminal-green animate-pulse;
+  }
+
+  .status-dot-pending {
+    @apply bg-terminal-yellow;
+  }
+
+  .status-dot-completed {
+    @apply bg-terminal-accent;
+  }
+
+  .status-dot-failed {
+    @apply bg-terminal-red;
+  }
+
+  .status-dot-stopped {
+    @apply bg-terminal-dim;
+  }
+
+  .btn {
+    @apply px-4 py-2 rounded-md font-medium text-sm transition-all duration-150
+           disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+
+  .btn-primary {
+    @apply btn bg-terminal-accent/20 text-terminal-accent border border-terminal-accent/30
+           hover:bg-terminal-accent/30 active:bg-terminal-accent/40;
+  }
+
+  .btn-danger {
+    @apply btn bg-terminal-red/20 text-terminal-red border border-terminal-red/30
+           hover:bg-terminal-red/30 active:bg-terminal-red/40;
+  }
+
+  .btn-ghost {
+    @apply btn text-terminal-dim hover:text-terminal-text hover:bg-terminal-border/50;
+  }
+
+  .input-field {
+    @apply w-full bg-terminal-bg border border-terminal-border rounded-md px-3 py-2
+           text-terminal-text placeholder-terminal-dim text-sm
+           focus:outline-none focus:border-terminal-accent/50 focus:ring-1 focus:ring-terminal-accent/20
+           transition-colors;
+  }
+}

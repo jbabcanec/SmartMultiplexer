@@ -1,0 +1,16 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "types": ["node", "better-sqlite3"],
+    "outDir": "dist/server",
+    "rootDir": "server",
+    "resolveJsonModule": true
+  },
+  "include": ["server"],
+  "exclude": ["node_modules"]
+}
