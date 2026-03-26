@@ -17,15 +17,6 @@ CREATE TABLE IF NOT EXISTS terminals (
   FOREIGN KEY (group_name) REFERENCES groups(name) ON DELETE SET NULL
 );
 
-CREATE TABLE IF NOT EXISTS boss_messages (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  role TEXT NOT NULL,
-  content TEXT NOT NULL,
-  terminal_id TEXT,
-  timestamp INTEGER NOT NULL
-);
-
 CREATE INDEX IF NOT EXISTS idx_terminals_group ON terminals(group_name);
 CREATE INDEX IF NOT EXISTS idx_terminals_status ON terminals(status);
-CREATE INDEX IF NOT EXISTS idx_boss_messages_time ON boss_messages(timestamp);
 `;

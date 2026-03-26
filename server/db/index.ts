@@ -90,24 +90,3 @@ export function deleteGroup(name: string) {
   getDb().prepare("DELETE FROM groups WHERE name = ?").run(name);
 }
 
-// --- Boss message queries ---
-
-export interface BossMessageRow {
-  id: number;
-  role: string;
-  content: string;
-  terminal_id: string | null;
-  timestamp: number;
-}
-
-export function insertBossMessage(msg: Omit<BossMessageRow, "id">) {
-  getDb()
-    .prepare("INSERT INTO boss_messages (role, content, terminal_id, timestamp) VALUES (?, ?, ?, ?)")
-    .run(msg.role, msg.content, msg.terminal_id, msg.timestamp);
-}
-
-export function listBossMessages(limit = 50): BossMessageRow[] {
-  return getDb()
-    .prepare("SELECT * FROM boss_messages ORDER BY timestamp DESC LIMIT ?")
-    .all(limit) as BossMessageRow[];
-}

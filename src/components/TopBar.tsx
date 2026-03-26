@@ -52,8 +52,8 @@ export default function TopBar() {
             setBossPanelOpen(opening);
             // Spawn boss terminal if opening and none exists
             if (opening && !bossTerminalId) {
-              getSocket().emit("boss:spawn", (res: any) => {
-                if (res?.ok) setBossTerminalId(res.id);
+              getSocket().emit("boss:spawn", (res: { ok: boolean; id?: string }) => {
+                if (res?.ok && res.id) setBossTerminalId(res.id);
               });
             }
           }}

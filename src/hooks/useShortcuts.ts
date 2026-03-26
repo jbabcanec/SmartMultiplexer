@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { useTerminalStore } from "../stores/terminalStore";
-import { createTerminal, removeTerminal } from "./useSocket";
+import { createTerminal, removeTerminal, getSocket } from "./useSocket";
 
 declare global {
   interface Window {
@@ -28,9 +28,16 @@ export function useShortcuts() {
           break;
         }
 
-        case "toggle-boss":
-          store.setBossPanelOpen(!store.bossPanelOpen);
+        case "toggle-boss": {
+          const opening = !store.bossPanelOpen;
+          store.setBossPanelOpen(opening);
+          if (opening && !store.bossTerminalId) {
+            getSocket().emit("boss:spawn", (res: { ok: boolean; id?: string }) => {
+              if (res?.ok && res.id) store.setBossTerminalId(res.id);
+            });
+          }
           break;
+        }
 
         case "next-terminal": {
           const { terminals, order, focusedId } = store;
