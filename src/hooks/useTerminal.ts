@@ -1,27 +1,30 @@
-import { useEffect, useRef, useCallback } from "react";
+import { useEffect, useRef, useCallback, useState } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { getSocket } from "./useSocket";
 import { useTerminalStore } from "../stores/terminalStore";
 
-export function useTerminal(
-  containerRef: React.RefObject<HTMLDivElement | null>,
-  terminalId: string | null,
-  active: boolean
-) {
+export function useTerminal(terminalId: string | null) {
   const termRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
+  const [container, setContainer] = useState<HTMLDivElement | null>(null);
   const zoom = useTerminalStore((s) => s.zoom);
+
+  // Callback ref — fires when the div mounts
+  const containerRef = useCallback((node: HTMLDivElement | null) => {
+    setContainer(node);
+  }, []);
 
   const focus = useCallback(() => {
     termRef.current?.focus();
   }, []);
 
   useEffect(() => {
-    if (!containerRef.current || !terminalId || !active) return;
+    if (!container || !terminalId) return;
 
     const socket = getSocket();
+
     const term = new Terminal({
       theme: {
         background: "#0a0e14",
@@ -49,22 +52,26 @@ export function useTerminal(
       fontSize: zoom,
       cursorBlink: true,
       scrollback: 5000,
-      convertEol: true,
     });
 
     const fitAddon = new FitAddon();
     term.loadAddon(fitAddon);
     term.loadAddon(new WebLinksAddon());
 
-    term.open(containerRef.current);
+    term.open(container);
     termRef.current = term;
     fitRef.current = fitAddon;
 
-    // Initial fit + focus
+    // Fit after a frame so the DOM has settled
     requestAnimationFrame(() => {
       try {
         fitAddon.fit();
         term.focus();
+        socket.emit("terminal:resize", {
+          id: terminalId,
+          cols: term.cols,
+          rows: term.rows,
+        });
       } catch {}
     });
 
@@ -96,7 +103,7 @@ export function useTerminal(
         } catch {}
       }, 100);
     });
-    observer.observe(containerRef.current);
+    observer.observe(container);
 
     return () => {
       clearTimeout(resizeTimer);
@@ -108,7 +115,7 @@ export function useTerminal(
       termRef.current = null;
       fitRef.current = null;
     };
-  }, [terminalId, active, containerRef]);
+  }, [terminalId, container]);
 
   // React to zoom changes
   useEffect(() => {
@@ -118,5 +125,5 @@ export function useTerminal(
     }
   }, [zoom]);
 
-  return { termRef, focus };
+  return { containerRef, focus };
 }

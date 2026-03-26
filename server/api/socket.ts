@@ -1,7 +1,8 @@
 import type { Server, Socket } from "socket.io";
+import { writeFileSync } from "fs";
+import { join } from "path";
+import { tmpdir } from "os";
 import { ptyManager } from "../pty/manager.js";
-import { handleBossMessage } from "../boss/boss.js";
-import * as db from "../db/index.js";
 
 export function setupSocket(io: Server) {
   // Forward PTY events to socket rooms
@@ -14,10 +15,8 @@ export function setupSocket(io: Server) {
   });
 
   io.on("connection", (socket: Socket) => {
-    // Send current terminal list on connect
     socket.emit("terminal:list", ptyManager.list());
 
-    // Create terminal
     socket.on("terminal:create", (config, callback) => {
       try {
         const info = ptyManager.spawn(config || {});
@@ -28,7 +27,6 @@ export function setupSocket(io: Server) {
       }
     });
 
-    // Subscribe to terminal output
     socket.on("terminal:subscribe", (id: string) => {
       socket.join(`term:${id}`);
       const scrollback = ptyManager.getScrollback(id);
@@ -41,58 +39,94 @@ export function setupSocket(io: Server) {
       socket.leave(`term:${id}`);
     });
 
-    // Terminal input (keystrokes)
     socket.on("terminal:input", ({ id, data }: { id: string; data: string }) => {
       ptyManager.write(id, data);
     });
 
-    // Terminal resize
     socket.on("terminal:resize", ({ id, cols, rows }: { id: string; cols: number; rows: number }) => {
       ptyManager.resize(id, cols, rows);
     });
 
-    // Kill terminal
     socket.on("terminal:kill", (id: string) => {
       ptyManager.kill(id);
     });
 
-    // Remove terminal
     socket.on("terminal:remove", (id: string) => {
       ptyManager.remove(id);
       io.emit("terminal:removed", id);
     });
 
-    // Rename terminal
     socket.on("terminal:rename", ({ id, name }: { id: string; name: string }) => {
       ptyManager.rename(id, name);
       io.emit("terminal:renamed", { id, name });
     });
 
-    // Set group
     socket.on("terminal:setGroup", ({ id, groupName }: { id: string; groupName: string | null }) => {
       ptyManager.setGroup(id, groupName);
       io.emit("terminal:groupChanged", { id, groupName });
     });
 
-    // Boss agent
-    socket.on("boss:message", async (content: string) => {
-      socket.emit("boss:thinking", true);
+    // Boss terminal — spawns an interactive claude session with terminal context
+    socket.on("boss:spawn", (callback) => {
       try {
-        const { commands } = await handleBossMessage(content, (chunk) => {
-          socket.emit("boss:chunk", chunk);
+        const info = ptyManager.spawn({
+          name: "Boss",
+          shell: "powershell.exe",
         });
-        socket.emit("boss:done", { commands });
+
+        // Write context to a temp file so claude can read it cleanly
+        const contextPath = join(tmpdir(), `smartterm-boss-${info.id.slice(0, 8)}.md`);
+
+        setTimeout(() => {
+          const summaries = ptyManager.getSummaries(info.id);
+          const context = [
+            `# SmartTerm Boss Context`,
+            ``,
+            `You are the Boss agent in SmartTerm, a terminal multiplexer.`,
+            `You can see what all other terminals are doing and help coordinate work.`,
+            `When the user says "refresh", they will paste updated terminal state.`,
+            ``,
+            `## Current Terminal State`,
+            ``,
+            summaries,
+          ].join("\n");
+
+          writeFileSync(contextPath, context, "utf-8");
+
+          // Start claude with the context file as the first message
+          const escaped = contextPath.replace(/\\/g, "\\\\");
+          ptyManager.write(
+            info.id,
+            `claude "Read ${escaped} for context about the terminals I have open, then give me a brief status summary."\r`
+          );
+        }, 1500);
+
+        io.emit("terminal:created", info);
+        if (callback) callback({ ok: true, id: info.id });
       } catch (err: any) {
-        socket.emit("boss:chunk", `\nError: ${err.message}`);
-        socket.emit("boss:done", { commands: [] });
+        if (callback) callback({ ok: false, error: err.message });
       }
-      socket.emit("boss:thinking", false);
     });
 
-    // Boss history
-    socket.on("boss:getHistory", (callback) => {
-      const msgs = db.listBossMessages(50).reverse();
-      if (callback) callback(msgs);
+    // Boss refresh — writes updated context file and tells boss to re-read it
+    socket.on("boss:refresh", ({ bossId }: { bossId: string }) => {
+      const summaries = ptyManager.getSummaries(bossId);
+      const contextPath = join(tmpdir(), `smartterm-boss-${bossId.slice(0, 8)}.md`);
+      const context = [
+        `# SmartTerm Boss Context (refreshed)`,
+        ``,
+        `## Current Terminal State`,
+        ``,
+        summaries,
+      ].join("\n");
+
+      writeFileSync(contextPath, context, "utf-8");
+
+      const escaped = contextPath.replace(/\\/g, "\\\\");
+      ptyManager.write(
+        bossId,
+        `Re-read ${escaped} — the terminal state has been updated. What changed? Anything need attention?\r`
+      );
     });
   });
 }

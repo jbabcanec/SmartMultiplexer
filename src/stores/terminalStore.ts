@@ -23,16 +23,6 @@ export interface Session {
   savedAt: number;
 }
 
-export type LayoutMode =
-  | "auto"      // auto-grid based on count
-  | "single"    // focused terminal only
-  | "cols-2"    // 2 columns
-  | "cols-3"    // 3 columns
-  | "rows-2"    // 2 rows
-  | "grid-2x2"  // 2x2
-  | "main-side" // 1 big left, stacked right
-  | "main-top"; // 1 big top, row below
-
 interface TerminalStore {
   terminals: TerminalInfo[];
   order: string[];
@@ -43,8 +33,8 @@ interface TerminalStore {
   bookmarkOpen: boolean;
   bossPanelOpen: boolean;
   lastLines: Record<string, string>;
-  layout: LayoutMode;
-  zoom: number; // font size: 10-24
+  zoom: number;
+  bossTerminalId: string | null;
 
   setTerminals: (t: TerminalInfo[]) => void;
   addTerminal: (t: TerminalInfo) => void;
@@ -58,8 +48,8 @@ interface TerminalStore {
   setBookmarkOpen: (v: boolean) => void;
   setBossPanelOpen: (v: boolean) => void;
   setLastLine: (id: string, line: string) => void;
-  setLayout: (l: LayoutMode) => void;
   setZoom: (z: number) => void;
+  setBossTerminalId: (id: string | null) => void;
 }
 
 export const useTerminalStore = create<TerminalStore>((set) => ({
@@ -72,8 +62,8 @@ export const useTerminalStore = create<TerminalStore>((set) => ({
   bookmarkOpen: true,
   bossPanelOpen: false,
   lastLines: {},
-  layout: "auto",
   zoom: 13,
+  bossTerminalId: null,
 
   setTerminals: (terminals) =>
     set((s) => ({
@@ -118,8 +108,8 @@ export const useTerminalStore = create<TerminalStore>((set) => ({
   setBossPanelOpen: (bossPanelOpen) => set({ bossPanelOpen }),
   setLastLine: (id, line) =>
     set((s) => ({ lastLines: { ...s.lastLines, [id]: line } })),
-  setLayout: (layout) => set({ layout }),
   setZoom: (zoom) => set({ zoom: Math.max(8, Math.min(28, zoom)) }),
+  setBossTerminalId: (bossTerminalId) => set({ bossTerminalId }),
 }));
 
 // --- Session persistence (localStorage) ---

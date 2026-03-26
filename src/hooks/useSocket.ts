@@ -1,7 +1,6 @@
 import { useEffect, useRef } from "react";
 import { io, Socket } from "socket.io-client";
 import { useTerminalStore } from "../stores/terminalStore";
-import { useBossStore } from "../stores/bossStore";
 
 let globalSocket: Socket | null = null;
 
@@ -48,13 +47,14 @@ export function useSocket() {
     });
 
     // Capture last line of output for bookmark sidebar
-    socket.on("terminal:data", ({ id, data }) => {
+    const onTermData = ({ id, data }: { id: string; data: string }) => {
       const clean = data.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, "").replace(/\r/g, "");
       const lines = clean.split("\n").filter((l: string) => l.trim());
       if (lines.length > 0) {
         useTerminalStore.getState().setLastLine(id, lines[lines.length - 1].trim().slice(0, 120));
       }
-    });
+    };
+    socket.on("terminal:data", onTermData);
 
     return () => {
       socket.off("terminal:list");
@@ -63,7 +63,7 @@ export function useSocket() {
       socket.off("terminal:removed");
       socket.off("terminal:renamed");
       socket.off("terminal:groupChanged");
-      socket.off("terminal:data");
+      socket.off("terminal:data", onTermData);
     };
   }, []);
 
@@ -94,36 +94,4 @@ export function renameTerminal(id: string, name: string) {
 export function removeAllTerminals() {
   const terminals = useTerminalStore.getState().terminals;
   terminals.forEach((t) => getSocket().emit("terminal:remove", t.id));
-}
-
-export function sendBossMessage(content: string) {
-  const store = useBossStore.getState();
-  store.addMessage({ role: "user", content, timestamp: Date.now() });
-  store.clearStream();
-  store.setThinking(true);
-
-  const socket = getSocket();
-
-  const onChunk = (text: string) => {
-    useBossStore.getState().appendStream(text);
-  };
-
-  const onDone = () => {
-    const stream = useBossStore.getState().streamingText;
-    if (stream) {
-      useBossStore.getState().addMessage({
-        role: "assistant",
-        content: stream,
-        timestamp: Date.now(),
-      });
-    }
-    useBossStore.getState().clearStream();
-    useBossStore.getState().setThinking(false);
-    socket.off("boss:chunk", onChunk);
-    socket.off("boss:done", onDone);
-  };
-
-  socket.on("boss:chunk", onChunk);
-  socket.on("boss:done", onDone);
-  socket.emit("boss:message", content);
 }

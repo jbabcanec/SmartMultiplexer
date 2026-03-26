@@ -89,6 +89,8 @@ function createWindow() {
     return { action: "deny" };
   });
 
+  mainWindow.webContents.openDevTools({ mode: "bottom" });
+
   mainWindow.on("closed", () => {
     mainWindow = null;
   });

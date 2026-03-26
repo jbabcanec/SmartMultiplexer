@@ -129,9 +129,9 @@ export class PtyManager extends EventEmitter {
   }
 
   /** Get summaries of all terminals for the boss agent */
-  getSummaries(): string {
-    const terminals = this.list();
-    if (terminals.length === 0) return "No terminals are open.";
+  getSummaries(excludeId?: string): string {
+    const terminals = this.list().filter((t) => t.id !== excludeId);
+    if (terminals.length === 0) return "No other terminals are open.";
 
     return terminals
       .map((t, i) => {
