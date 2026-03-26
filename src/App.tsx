@@ -1,5 +1,6 @@
 import { Component, type ReactNode } from "react";
 import { useSocket } from "./hooks/useSocket";
+import { useShortcuts } from "./hooks/useShortcuts";
 import TopBar from "./components/TopBar";
 import BookmarkSidebar from "./components/BookmarkSidebar";
 import TerminalGrid from "./components/TerminalGrid";
@@ -29,6 +30,7 @@ class ErrorBoundary extends Component<
 
 function AppInner() {
   useSocket();
+  useShortcuts();
 
   return (
     <div className="h-screen flex flex-col overflow-hidden">

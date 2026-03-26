@@ -3,6 +3,7 @@ import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { getSocket } from "./useSocket";
+import { useTerminalStore } from "../stores/terminalStore";
 
 export function useTerminal(
   containerRef: React.RefObject<HTMLDivElement | null>,
@@ -11,6 +12,7 @@ export function useTerminal(
 ) {
   const termRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
+  const zoom = useTerminalStore((s) => s.zoom);
 
   const focus = useCallback(() => {
     termRef.current?.focus();
@@ -44,7 +46,7 @@ export function useTerminal(
         brightWhite: "#ffffff",
       },
       fontFamily: '"JetBrains Mono", "Fira Code", Consolas, monospace',
-      fontSize: 13,
+      fontSize: zoom,
       cursorBlink: true,
       scrollback: 5000,
       convertEol: true,
@@ -107,6 +109,14 @@ export function useTerminal(
       fitRef.current = null;
     };
   }, [terminalId, active, containerRef]);
+
+  // React to zoom changes
+  useEffect(() => {
+    if (termRef.current) {
+      termRef.current.options.fontSize = zoom;
+      try { fitRef.current?.fit(); } catch {}
+    }
+  }, [zoom]);
 
   return { termRef, focus };
 }
