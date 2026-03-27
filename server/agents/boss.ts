@@ -16,7 +16,7 @@ const MODEL = "claude-sonnet-4-5-20250929";
 const MAX_TOKENS = 4096;
 const MAX_TOOL_ROUNDS = 25;
 const MAX_TERMINALS = 8;
-const WORKSPACE_ROOT = process.env.WORKSPACE_ROOT || "C:\\Users\\josep\\Dropbox\\Babcanec Works\\Programming";
+const WORKSPACE_ROOT = process.env.WORKSPACE_ROOT || "C:\\Users\\josep\\Dropbox\\Babcanec Works";
 
 const SYSTEM_PROMPT = `You are Boss, a terse terminal supervisor. No markdown formatting — plain text only. No **bold**, no *italic*, no bullet lists. Write short, direct sentences.
 
@@ -87,17 +87,17 @@ const TOOLS: Tool[] = [
   {
     name: "spawn_worker",
     description:
-      "Create a new terminal and start Claude Code with a specific task. The worker appears in the terminal grid and runs autonomously.",
+      "Create a new terminal and optionally start Claude Code. If task is omitted, just opens Claude Code with no initial prompt so the user can resume or start fresh.",
     input_schema: {
       type: "object" as const,
       properties: {
         name: {
           type: "string",
-          description: "Terminal name (defaults to 'Worker: <task>')",
+          description: "Terminal name",
         },
         task: {
           type: "string",
-          description: "The task description for Claude Code to work on",
+          description: "Optional task for Claude Code. If omitted, Claude Code starts with no prompt.",
         },
         cwd: {
           type: "string",
@@ -108,7 +108,7 @@ const TOOLS: Tool[] = [
           description: "Pass --dangerously-skip-permissions to Claude Code. Use when user asks for no permissions, bypass, or dangerous mode.",
         },
       },
-      required: ["task", "cwd"],
+      required: ["cwd"],
     },
   },
   {
@@ -201,12 +201,23 @@ async function executeTool(
     switch (name) {
       case "list_projects": {
         try {
-          const entries = readdirSync(WORKSPACE_ROOT)
-            .filter((e) => {
-              try { return statSync(join(WORKSPACE_ROOT, e)).isDirectory(); } catch { return false; }
-            })
-            .map((e) => `${e} -> ${join(WORKSPACE_ROOT, e)}`);
-          return { result: entries.join("\n") || "No projects found.", isError: false };
+          const results: string[] = [];
+          const topDirs = readdirSync(WORKSPACE_ROOT).filter((e) => {
+            try { return statSync(join(WORKSPACE_ROOT, e)).isDirectory(); } catch { return false; }
+          });
+          for (const top of topDirs) {
+            const topPath = join(WORKSPACE_ROOT, top);
+            results.push(`[${top}]`);
+            try {
+              const subs = readdirSync(topPath).filter((e) => {
+                try { return statSync(join(topPath, e)).isDirectory(); } catch { return false; }
+              });
+              for (const sub of subs) {
+                results.push(`  ${sub} -> ${join(topPath, sub)}`);
+              }
+            } catch { /* skip unreadable */ }
+          }
+          return { result: results.join("\n") || "No projects found.", isError: false };
         } catch (err: any) {
           return { result: `Cannot read workspace: ${err.message}`, isError: true };
         }
@@ -259,10 +270,10 @@ async function executeTool(
             isError: true,
           };
         }
-        const task = input.task as string;
-        const workerName = (input.name as string) || `Worker: ${task.slice(0, 30)}`;
+        const task = input.task as string | undefined;
         const cwd = input.cwd as string;
         const skipPerms = input.dangerously_skip_permissions as boolean;
+        const workerName = (input.name as string) || (task ? `Worker: ${task.slice(0, 30)}` : cwd.split(/[\\/]/).pop() || "Terminal");
         const info = ptyManager.spawn({
           name: workerName,
           cwd,
@@ -275,9 +286,21 @@ async function executeTool(
           // Shell might already be ready
         }
 
-        const escapedTask = task.replace(/"/g, '`"');
         const permsFlag = skipPerms ? " --dangerously-skip-permissions" : "";
-        ptyManager.write(info.id, `claude${permsFlag} "${escapedTask}"\r`);
+        if (task) {
+          const escapedTask = task.replace(/"/g, '`"');
+          ptyManager.write(info.id, `claude${permsFlag} "${escapedTask}"\r`);
+        } else {
+          ptyManager.write(info.id, `claude${permsFlag}\r`);
+        }
+
+        // Auto-accept the "trust this folder" prompt
+        try {
+          await ptyManager.waitForOutput(info.id, /trust this folder|Yes, I trust/i, 20000);
+          ptyManager.write(info.id, "\r"); // press Enter on "Yes, I trust this folder"
+        } catch {
+          // No trust prompt (already trusted or skipped permissions)
+        }
 
         return {
           result: JSON.stringify({ terminal_id: info.id, name: info.name }),

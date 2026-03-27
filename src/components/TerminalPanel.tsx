@@ -104,7 +104,7 @@ export default function TerminalPanel({ terminal }: { terminal: TerminalInfo }) 
         ref={containerRef}
         onClick={(e) => { e.stopPropagation(); focus(); }}
         className="flex-1 min-h-0 overflow-hidden"
-        style={{ background: "#0a0e14", width: "100%", height: "100%", position: "relative" }}
+        style={{ background: "rgb(var(--t-bg))", width: "100%", height: "100%", position: "relative" }}
       />
     </div>
   );
