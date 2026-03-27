@@ -14,29 +14,49 @@
     "dist": "npm run build && electron-builder --win",
     "postinstall": "electron-builder install-app-deps"
   },
+  "author": {
+    "name": "Joseph Babcanec",
+    "email": "joseph.babz@gmail.com"
+  },
+  "license": "MIT",
   "build": {
     "appId": "com.smartterm.app",
     "productName": "SmartTerm",
+    "copyright": "Copyright (c) 2026 Joseph Babcanec",
     "directories": {
-      "output": "release"
+      "output": "release",
+      "buildResources": "build"
     },
     "files": [
       "dist/**/*",
       "electron/**/*",
       "public/**/*",
       "node_modules/**/*",
-      "!node_modules/.vite/**/*"
+      "!node_modules/.vite/**/*",
+      "!node_modules/.cache/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": ".env",
+        "to": ".env",
+        "filter": ["**/*"]
+      }
     ],
     "win": {
       "target": [
         "nsis",
         "portable"
       ],
-      "icon": "public/icons/icon-512.png"
+      "icon": "build/icon.ico",
+      "signAndEditExecutable": false
     },
     "nsis": {
       "oneClick": false,
-      "allowToChangeInstallationDirectory": true
+      "allowToChangeInstallationDirectory": true,
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico",
+      "installerHeaderIcon": "build/icon.ico",
+      "shortcutName": "SmartTerm"
     }
   },
   "dependencies": {

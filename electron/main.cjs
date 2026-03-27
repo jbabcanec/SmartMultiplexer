@@ -1,5 +1,6 @@
 const { app, BrowserWindow, shell } = require("electron");
 const path = require("path");
+const fs = require("fs");
 const { spawn } = require("child_process");
 
 const isDev = !app.isPackaged;
@@ -7,8 +8,27 @@ const PORT = 4800;
 let mainWindow = null;
 let serverProcess = null;
 
+/** Load .env from app resources (production) or project root (dev) */
+function loadEnv() {
+  const envPaths = [
+    path.join(process.resourcesPath || "", ".env"),
+    path.join(__dirname, "../.env"),
+  ];
+  for (const p of envPaths) {
+    if (fs.existsSync(p)) {
+      const lines = fs.readFileSync(p, "utf-8").split("\n");
+      for (const line of lines) {
+        const match = line.match(/^([^#=]+)=(.*)$/);
+        if (match) process.env[match[1].trim()] = match[2].trim();
+      }
+      break;
+    }
+  }
+}
+
 function startServer() {
   if (isDev) return; // dev server runs separately
+  loadEnv();
   const serverPath = path.join(__dirname, "../dist/server/index.js");
   serverProcess = spawn(process.execPath, [serverPath], {
     env: { ...process.env, PORT: String(PORT) },
