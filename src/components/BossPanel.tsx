@@ -10,8 +10,6 @@ export default function BossPanel() {
 
   const { containerRef, focus } = useTerminal(open && bossId ? bossId : null);
 
-  const handleClick = useCallback(() => focus(), [focus]);
-
   const handleRefresh = useCallback(() => {
     if (bossId) {
       getSocket().emit("boss:refresh", { bossId });
@@ -24,34 +22,24 @@ export default function BossPanel() {
 
   if (!open) return null;
 
-  if (!bossId) {
-    return (
-      <div className="w-[480px] shrink-0 flex flex-col border-l border-terminal-border bg-terminal-surface/80">
-        <div className="h-7 flex items-center px-3 border-b border-terminal-border shrink-0">
-          <span className="text-xs font-medium text-terminal-purple">Boss Terminal</span>
-        </div>
-        <div className="flex-1 flex items-center justify-center">
-          <span className="text-terminal-dim text-xs">Starting Claude session...</span>
-        </div>
-      </div>
-    );
-  }
-
   return (
-    <div className="w-[480px] shrink-0 flex flex-col border-l border-terminal-border">
-      <div className="h-7 flex items-center justify-between px-3 border-b border-terminal-border shrink-0 bg-terminal-surface">
-        <div className="flex items-center gap-2">
-          <span className="w-2 h-2 rounded-full bg-terminal-purple" />
-          <span className="text-xs font-medium text-terminal-purple">Boss</span>
+    <div className="w-[480px] shrink-0 flex flex-col border-l border-terminal-border bg-terminal-surface/80">
+      {/* Header */}
+      <div className="h-8 flex items-center justify-between px-3 border-b border-terminal-border shrink-0 bg-terminal-surface">
+        <div className="flex items-center gap-1.5">
+          <span className={`w-1.5 h-1.5 rounded-full ${bossId ? "bg-terminal-purple" : "bg-terminal-dim/40"}`} />
+          <span className="text-[11px] font-medium text-terminal-purple">Boss AI</span>
         </div>
         <div className="flex items-center gap-1">
-          <button
-            onClick={handleRefresh}
-            className="px-1.5 py-0.5 rounded text-[10px] text-terminal-dim hover:text-terminal-purple transition-colors"
-            title="Refresh terminal context"
-          >
-            Refresh
-          </button>
+          {bossId && (
+            <button
+              onClick={handleRefresh}
+              className="px-1.5 py-0.5 rounded text-[10px] text-terminal-dim hover:text-terminal-purple transition-colors"
+              title="Refresh terminal context"
+            >
+              Refresh
+            </button>
+          )}
           <button
             onClick={handleClose}
             className="w-5 h-5 flex items-center justify-center text-terminal-dim hover:text-terminal-red rounded"
@@ -63,12 +51,20 @@ export default function BossPanel() {
           </button>
         </div>
       </div>
-      <div
-        ref={containerRef}
-        onClick={handleClick}
-        className="flex-1"
-        style={{ background: "#0a0e14" }}
-      />
+
+      {/* Boss AI terminal */}
+      {!bossId ? (
+        <div className="flex-1 flex items-center justify-center">
+          <span className="text-terminal-dim text-xs">Starting Claude session...</span>
+        </div>
+      ) : (
+        <div
+          ref={containerRef}
+          onClick={() => focus()}
+          className="flex-1"
+          style={{ background: "#0a0e14" }}
+        />
+      )}
     </div>
   );
 }

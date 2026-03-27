@@ -34,6 +34,34 @@ router.put("/terminals/:id/group", (req: Request, res: Response) => {
   res.json({ ok: true });
 });
 
+// Get recent output from a terminal (last N lines, default 30)
+router.get("/terminals/:id/output", (req: Request, res: Response) => {
+  const lines = parseInt(req.query.lines as string) || 30;
+  if (!ptyManager.getInfo(req.params.id)) {
+    res.status(404).json({ error: "Terminal not found" });
+    return;
+  }
+  const buf = ptyManager.getScrollback(req.params.id);
+  const clean = buf.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, "").replace(/\r/g, "");
+  const allLines = clean.split("\n").filter((l) => l.trim());
+  res.json({ lines: allLines.slice(-lines) });
+});
+
+// Send input to a terminal
+router.post("/terminals/:id/input", (req: Request, res: Response) => {
+  const { input } = req.body;
+  if (!input) {
+    res.status(400).json({ error: "input is required" });
+    return;
+  }
+  if (!ptyManager.isRunning(req.params.id)) {
+    res.status(404).json({ error: "Terminal not found or not running" });
+    return;
+  }
+  ptyManager.write(req.params.id, input);
+  res.json({ ok: true });
+});
+
 // --- Groups ---
 
 router.get("/groups", (_req: Request, res: Response) => {

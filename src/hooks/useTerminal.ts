@@ -62,6 +62,30 @@ export function useTerminal(terminalId: string | null) {
     termRef.current = term;
     fitRef.current = fitAddon;
 
+    // Clipboard: Ctrl+C copies selection (else sends SIGINT), Ctrl+V pastes
+    term.attachCustomKeyEventHandler((e) => {
+      if (e.type !== "keydown") return true;
+      if (e.ctrlKey && e.key === "c" && term.hasSelection()) {
+        navigator.clipboard.writeText(term.getSelection());
+        term.clearSelection();
+        return false; // prevent sending SIGINT
+      }
+      if (e.ctrlKey && e.shiftKey && e.key === "C") {
+        if (term.hasSelection()) {
+          navigator.clipboard.writeText(term.getSelection());
+          term.clearSelection();
+        }
+        return false;
+      }
+      if (e.ctrlKey && e.key === "v") {
+        navigator.clipboard.readText().then((text) => {
+          socket.emit("terminal:input", { id: terminalId, data: text });
+        });
+        return false;
+      }
+      return true;
+    });
+
     // Fit after a frame so the DOM has settled
     requestAnimationFrame(() => {
       try {

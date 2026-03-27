@@ -33,7 +33,7 @@ app.get("*", (_req, res) => {
   res.sendFile(path.join(distPath, "index.html"));
 });
 
-// Initialize DB
+// Initialize DB (groups only)
 getDb();
 
 // Socket.IO

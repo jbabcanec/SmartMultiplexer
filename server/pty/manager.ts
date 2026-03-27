@@ -1,21 +1,27 @@
 import * as pty from "node-pty";
 import { EventEmitter } from "events";
 import { randomUUID } from "crypto";
-import type { PtyConfig, TerminalInfo } from "./types.js";
-import * as db from "../db/index.js";
+import type { PtyConfig, TerminalInfo, ManagedTerminal } from "./types.js";
 
 const SCROLLBACK_BYTES = 100 * 1024; // 100KB ring buffer per terminal
 const DEFAULT_SHELL = process.platform === "win32" ? "powershell.exe" : process.env.SHELL || "/bin/bash";
 
 export class PtyManager extends EventEmitter {
-  private ptys = new Map<string, pty.IPty>();
-  private buffers = new Map<string, string>();
-  private terminalCounter = 0;
+  private terminals = new Map<string, ManagedTerminal>();
+
+  /** Derive next "Terminal N" number from living terminals */
+  private nextTerminalNumber(): number {
+    let max = 0;
+    for (const t of this.terminals.values()) {
+      const m = t.info.name.match(/^Terminal (\d+)$/);
+      if (m) max = Math.max(max, parseInt(m[1], 10));
+    }
+    return max + 1;
+  }
 
   spawn(config: PtyConfig): TerminalInfo {
     const id = randomUUID();
-    this.terminalCounter++;
-    const name = config.name || `Terminal ${this.terminalCounter}`;
+    const name = config.name || `Terminal ${this.nextTerminalNumber()}`;
     const shell = config.shell || DEFAULT_SHELL;
     const cwd = config.cwd || process.cwd();
     const cols = config.cols || 120;
@@ -30,10 +36,6 @@ export class PtyManager extends EventEmitter {
       useConpty: process.platform === "win32",
     });
 
-    this.ptys.set(id, p);
-    this.buffers.set(id, "");
-
-    const now = Date.now();
     const info: TerminalInfo = {
       id,
       name,
@@ -44,88 +46,94 @@ export class PtyManager extends EventEmitter {
       rows,
       status: "running",
       exitCode: null,
-      createdAt: now,
+      createdAt: Date.now(),
     };
 
-    db.insertTerminal({
-      id,
-      name,
-      group_name: config.groupName || null,
-      shell,
-      cwd,
-      status: "running",
-      exit_code: null,
-      created_at: now,
-    });
+    const managed: ManagedTerminal = { info, process: p, buffer: "" };
+    this.terminals.set(id, managed);
 
     p.onData((data) => {
-      // Append to ring buffer
-      let buf = (this.buffers.get(id) || "") + data;
+      let buf = managed.buffer + data;
       if (buf.length > SCROLLBACK_BYTES) {
         buf = buf.slice(buf.length - SCROLLBACK_BYTES);
       }
-      this.buffers.set(id, buf);
+      managed.buffer = buf;
       this.emit("data", id, data);
     });
 
     p.onExit(({ exitCode }) => {
-      db.updateTerminal(id, { status: "exited", exit_code: exitCode });
-      this.ptys.delete(id);
+      managed.info.status = "exited";
+      managed.info.exitCode = exitCode;
+      managed.process = null;
       this.emit("exit", id, exitCode);
     });
 
+    this.emit("created", info);
     return info;
   }
 
   write(id: string, data: string) {
-    this.ptys.get(id)?.write(data);
+    this.terminals.get(id)?.process?.write(data);
   }
 
   resize(id: string, cols: number, rows: number) {
+    const t = this.terminals.get(id);
+    if (!t?.process) return;
     try {
-      this.ptys.get(id)?.resize(cols, rows);
+      t.process.resize(cols, rows);
+      t.info.cols = cols;
+      t.info.rows = rows;
     } catch {}
   }
 
+  /** Stop the process but keep the terminal visible (scrollback preserved) */
   kill(id: string) {
-    const p = this.ptys.get(id);
-    if (p) {
-      p.kill();
-      this.ptys.delete(id);
+    const t = this.terminals.get(id);
+    if (!t) return;
+    if (t.process) {
+      t.process.kill();
+      t.process = null;
     }
-    db.updateTerminal(id, { status: "exited", exit_code: -1 });
+    t.info.status = "exited";
+    t.info.exitCode = -1;
   }
 
+  /** Destroy entirely — process, buffer, all memory of it */
   remove(id: string) {
     this.kill(id);
-    this.buffers.delete(id);
-    db.deleteTerminal(id);
+    this.terminals.delete(id);
+    this.emit("removed", id);
   }
 
   getScrollback(id: string): string {
-    return this.buffers.get(id) || "";
+    return this.terminals.get(id)?.buffer || "";
   }
 
   getInfo(id: string): TerminalInfo | null {
-    const row = db.getTerminal(id);
-    if (!row) return null;
-    return this.rowToInfo(row);
+    const t = this.terminals.get(id);
+    return t ? { ...t.info } : null;
   }
 
   list(): TerminalInfo[] {
-    return db.listTerminals().map((r) => this.rowToInfo(r));
+    return Array.from(this.terminals.values()).map((t) => ({ ...t.info }));
   }
 
   isRunning(id: string): boolean {
-    return this.ptys.has(id);
+    return this.terminals.get(id)?.process != null;
   }
 
   rename(id: string, name: string) {
-    db.updateTerminal(id, { name });
+    const t = this.terminals.get(id);
+    if (!t) return;
+    t.info.name = name;
+    this.emit("renamed", id, name);
   }
 
   setGroup(id: string, groupName: string | null) {
-    db.updateTerminal(id, { group_name: groupName });
+    const t = this.terminals.get(id);
+    if (!t) return;
+    t.info.groupName = groupName;
+    this.emit("groupChanged", id, groupName);
   }
 
   /** Get summaries of all terminals for the boss agent */
@@ -134,30 +142,43 @@ export class PtyManager extends EventEmitter {
     if (terminals.length === 0) return "No other terminals are open.";
 
     return terminals
-      .map((t, i) => {
-        const buf = this.buffers.get(t.id) || "";
-        // Strip ANSI codes and get last 30 lines
+      .map((t) => {
+        const buf = this.terminals.get(t.id)?.buffer || "";
         const clean = buf.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, "").replace(/\r/g, "");
         const lines = clean.split("\n").filter((l) => l.trim());
         const lastLines = lines.slice(-30).join("\n");
-        return `Terminal ${i + 1} "${t.name}" [${t.status}] (cwd: ${t.cwd}):\n${lastLines || "(no output yet)"}`;
+        return `"${t.name}" [${t.status}] (cwd: ${t.cwd}):\n${lastLines || "(no output yet)"}`;
       })
       .join("\n\n---\n\n");
   }
 
-  private rowToInfo(row: db.TerminalRow): TerminalInfo {
-    return {
-      id: row.id,
-      name: row.name,
-      groupName: row.group_name,
-      shell: row.shell,
-      cwd: row.cwd,
-      cols: 120,
-      rows: 30,
-      status: row.status as "running" | "exited",
-      exitCode: row.exit_code,
-      createdAt: row.created_at,
-    };
+  /** Wait for the terminal output to match a pattern (ANSI codes stripped), then resolve */
+  waitForOutput(id: string, pattern: RegExp, timeoutMs = 15000): Promise<void> {
+    const strip = (s: string) => s.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, "").replace(/\r/g, "");
+
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.removeListener("data", onData);
+        reject(new Error("Timed out waiting for terminal output"));
+      }, timeoutMs);
+
+      const onData = (dataId: string) => {
+        if (dataId !== id) return;
+        const buf = this.terminals.get(id)?.buffer || "";
+        if (pattern.test(strip(buf))) {
+          clearTimeout(timer);
+          this.removeListener("data", onData);
+          resolve();
+        }
+      };
+
+      const buf = this.terminals.get(id)?.buffer || "";
+      if (pattern.test(strip(buf))) {
+        resolve();
+        return;
+      }
+      this.on("data", onData);
+    });
   }
 }
 
