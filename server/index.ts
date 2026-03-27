@@ -6,7 +6,7 @@ import { Server } from "socket.io";
 import path from "path";
 import { fileURLToPath } from "url";
 import apiRoutes from "./api/routes.js";
-import { setupSocket } from "./api/socket.js";
+import { setupSocket, getTelegram } from "./api/socket.js";
 import { getDb } from "./db/index.js";
 import { createLogger } from "./lib/logger.js";
 import { ptyManager } from "./pty/manager.js";
@@ -49,8 +49,12 @@ log.info("Socket.IO handlers registered");
 log.info("ANTHROPIC_API_KEY", process.env.ANTHROPIC_API_KEY ? "set" : "NOT SET");
 
 // Kill all PTY processes on shutdown so we don't leave orphans
-function shutdown() {
+async function shutdown() {
   log.info("Shutting down — killing all terminals");
+  const tg = getTelegram();
+  if (tg) {
+    try { await tg.notifyShutdown(); } catch {}
+  }
   ptyManager.killAll();
   process.exit(0);
 }

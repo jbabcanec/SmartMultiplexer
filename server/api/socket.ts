@@ -9,6 +9,8 @@ const log = createLogger("socket");
 let bossAgent: BossAgent | null = null;
 let telegram: TelegramBridge | null = null;
 
+export function getTelegram() { return telegram; }
+
 function getBossAgent(): BossAgent | null {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) return null;
@@ -41,9 +43,61 @@ export function setupSocket(io: Server) {
     telegram.startPolling();
   }
 
+  // --- Proactive terminal monitoring ---
+  // Track recent output per terminal to detect when something needs attention
+  const recentOutput = new Map<string, string>();
+  const idleTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+  const ATTENTION_PATTERNS = [
+    /\?\s*$/,                          // ends with ?
+    /\[y\/n\]/i,                       // [y/N] [Y/n]
+    /\(yes\/no\)/i,                    // (yes/no)
+    /press enter|press any key/i,      // waiting for keypress
+    /do you want to/i,                 // Claude Code prompts
+    /should I/i,                       // Claude asking
+    /permission/i,                     // permission prompts
+    /error:|failed|exception/i,        // errors
+    /EACCES|ENOENT|EPERM/i,           // system errors
+  ];
+
+  function checkForAttention(id: string) {
+    if (!telegram) return;
+    const buf = recentOutput.get(id) || "";
+    const info = ptyManager.getInfo(id);
+    if (!info) return;
+
+    // Strip ANSI and get last few lines
+    const clean = buf
+      .replace(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g, "")
+      .replace(/\x1b\[[0-9;?]*[a-zA-Z]/g, "")
+      .replace(/\x1b[>=<][0-9]*[a-zA-Z]/g, "")
+      .replace(/\r/g, "");
+    const lines = clean.split("\n").filter((l) => l.trim()).slice(-5);
+    const lastLines = lines.join(" ");
+
+    for (const pattern of ATTENTION_PATTERNS) {
+      if (pattern.test(lastLines)) {
+        const match = lastLines.match(pattern)?.[0] || "";
+        const snippet = lines.slice(-2).join(" ").slice(0, 100);
+        telegram.notifyIfAway(info.name, id, snippet);
+        break;
+      }
+    }
+  }
+
   // Forward all PtyManager lifecycle events to Socket.IO clients
   ptyManager.on("data", (id: string, data: string) => {
     io.to(`term:${id}`).emit("terminal:data", { id, data });
+
+    // Accumulate recent output and check after idle
+    const existing = recentOutput.get(id) || "";
+    const updated = (existing + data).slice(-4000); // keep last 4KB
+    recentOutput.set(id, updated);
+
+    // Reset idle timer — check 5 seconds after last output
+    const timer = idleTimers.get(id);
+    if (timer) clearTimeout(timer);
+    idleTimers.set(id, setTimeout(() => checkForAttention(id), 5000));
   });
 
   ptyManager.on("exit", (id: string, exitCode: number) => {

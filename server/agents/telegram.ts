@@ -45,11 +45,28 @@ export class TelegramBridge {
     }
   }
 
+  /** Track last notification per terminal to avoid spam */
+  private lastNotifiedTerminal = new Map<string, number>();
+
   startPolling() {
     if (this.polling) return;
     this.polling = true;
     this.pollTimer = setInterval(() => this.poll(), POLL_INTERVAL);
     log.info("Telegram polling started");
+  }
+
+  /** Call this when terminal output looks like it needs attention */
+  async notifyIfAway(terminalName: string, terminalId: string, reason: string) {
+    if (this.activeChannel !== "telegram") return; // user is at the app
+    // Don't spam — once per terminal per 60 seconds
+    const lastTime = this.lastNotifiedTerminal.get(terminalId) || 0;
+    if (Date.now() - lastTime < 60000) return;
+    this.lastNotifiedTerminal.set(terminalId, Date.now());
+    await this.send(`[${terminalName}] ${reason}`);
+  }
+
+  async notifyShutdown() {
+    await this.send("SmartTerm is shutting down. All terminals will be killed.");
   }
 
   stopPolling() {

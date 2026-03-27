@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Terminal Test</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/css/xterm.css">
+  <script src="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/lib/xterm.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.10.0/lib/addon-fit.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/socket.io-client@4.8.0/dist/socket.io.min.js"></script>
+  <style>
+    body { margin: 0; background: #0a0e14; }
+    #terminal { width: 100vw; height: 100vh; }
+    #status { position: fixed; top: 5px; right: 5px; color: #39bae6; font-family: monospace; font-size: 12px; z-index: 10; }
+  </style>
+</head>
+<body>
+  <div id="status">Connecting...</div>
+  <div id="terminal"></div>
+  <script>
+    const status = document.getElementById('status');
+    const socket = io(window.location.origin, { transports: ['websocket', 'polling'] });
+
+    socket.on('connect', () => {
+      status.textContent = 'Connected. Creating terminal...';
+
+      socket.emit('terminal:create', { name: 'test' }, (res) => {
+        if (!res || !res.ok) {
+          status.textContent = 'Failed to create: ' + JSON.stringify(res);
+          return;
+        }
+
+        const id = res.terminal.id;
+        status.textContent = 'Terminal: ' + id + ' — subscribing...';
+
+        const term = new Terminal({
+          theme: { background: '#0a0e14', foreground: '#c5cdd9', cursor: '#39bae6' },
+          fontFamily: 'Consolas, monospace',
+          fontSize: 14,
+          cursorBlink: true,
+        });
+
+        const fitAddon = new FitAddon.FitAddon();
+        term.loadAddon(fitAddon);
+        term.open(document.getElementById('terminal'));
+        fitAddon.fit();
+        term.focus();
+
+        socket.emit('terminal:subscribe', id);
+
+        let count = 0;
+        socket.on('terminal:data', (evt) => {
+          if (evt.id === id) {
+            count++;
+            term.write(evt.data);
+            status.textContent = 'Receiving data (' + count + ' events)';
+          }
+        });
+
+        term.onData((data) => {
+          socket.emit('terminal:input', { id, data });
+        });
+
+        window.addEventListener('resize', () => fitAddon.fit());
+      });
+    });
+
+    socket.on('connect_error', (e) => {
+      status.textContent = 'Connection error: ' + e.message;
+    });
+  </script>
+</body>
+</html>
