@@ -1,8 +1,36 @@
 import { Router, Request, Response } from "express";
 import { ptyManager } from "../pty/manager.js";
 import * as db from "../db/index.js";
+import { loadConfig, saveConfig, isConfigured, maskSecret } from "../lib/config.js";
 
 const router = Router();
+
+// --- Config ---
+
+router.get("/config", (_req: Request, res: Response) => {
+  const config = loadConfig();
+  res.json({
+    configured: isConfigured(),
+    anthropicApiKey: maskSecret(config.anthropicApiKey),
+    workspaceRoot: config.workspaceRoot,
+    telegramBotToken: maskSecret(config.telegramBotToken),
+    telegramChatId: config.telegramChatId,
+    defaultShell: config.defaultShell,
+    theme: config.theme,
+  });
+});
+
+router.post("/config", (req: Request, res: Response) => {
+  try {
+    const updated = saveConfig(req.body);
+    res.json({
+      ok: true,
+      configured: !!updated.anthropicApiKey && !!updated.workspaceRoot,
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
 // --- Terminals ---
 

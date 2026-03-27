@@ -8,8 +8,22 @@ const PORT = 4800;
 let mainWindow = null;
 let serverProcess = null;
 
-/** Load .env from app resources (production) or project root (dev) */
-function loadEnv() {
+/** Load config from AppData config.json and .env fallback */
+function loadConfig() {
+  // AppData config (production)
+  const appData = process.env.APPDATA || path.join(require("os").homedir(), ".config");
+  const configPath = path.join(appData, "SmartTerm", "config.json");
+  if (fs.existsSync(configPath)) {
+    try {
+      const config = JSON.parse(fs.readFileSync(configPath, "utf-8"));
+      if (config.anthropicApiKey) process.env.ANTHROPIC_API_KEY = config.anthropicApiKey;
+      if (config.workspaceRoot) process.env.WORKSPACE_ROOT = config.workspaceRoot;
+      if (config.telegramBotToken) process.env.TELEGRAM_BOT_TOKEN = config.telegramBotToken;
+      if (config.telegramChatId) process.env.TELEGRAM_CHAT_ID = config.telegramChatId;
+    } catch {}
+  }
+
+  // .env fallback (dev)
   const envPaths = [
     path.join(process.resourcesPath || "", ".env"),
     path.join(__dirname, "../.env"),
@@ -19,7 +33,9 @@ function loadEnv() {
       const lines = fs.readFileSync(p, "utf-8").split("\n");
       for (const line of lines) {
         const match = line.match(/^([^#=]+)=(.*)$/);
-        if (match) process.env[match[1].trim()] = match[2].trim();
+        if (match && !process.env[match[1].trim()]) {
+          process.env[match[1].trim()] = match[2].trim();
+        }
       }
       break;
     }
@@ -27,8 +43,8 @@ function loadEnv() {
 }
 
 function startServer() {
-  if (isDev) return; // dev server runs separately
-  loadEnv();
+  if (isDev) return;
+  loadConfig();
   const serverPath = path.join(__dirname, "../dist/server/index.js");
   serverProcess = spawn(process.execPath, [serverPath], {
     env: { ...process.env, PORT: String(PORT) },

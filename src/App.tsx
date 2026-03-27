@@ -1,4 +1,4 @@
-import { Component, type ReactNode } from "react";
+import { Component, type ReactNode, useState, useEffect } from "react";
 import { useSocket } from "./hooks/useSocket";
 import { useShortcuts } from "./hooks/useShortcuts";
 import { useBossSocket } from "./hooks/useBossSocket";
@@ -8,6 +8,7 @@ import BookmarkSidebar from "./components/BookmarkSidebar";
 import TerminalGrid from "./components/TerminalGrid";
 import BossChat from "./components/BossChat";
 import SettingsModal from "./components/SettingsModal";
+import SetupWizard from "./components/SetupWizard";
 
 class ErrorBoundary extends Component<
   { children: ReactNode },
@@ -37,6 +38,28 @@ function AppInner() {
   useBossSocket();
 
   const theme = useTerminalStore((s) => s.settings.theme);
+  const [needsSetup, setNeedsSetup] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    fetch("/api/config")
+      .then((r) => r.json())
+      .then((data) => setNeedsSetup(!data.configured))
+      .catch(() => setNeedsSetup(false)); // if fetch fails, skip wizard
+  }, []);
+
+  // Loading state while checking config
+  if (needsSetup === null) {
+    return (
+      <div className="h-screen flex items-center justify-center" style={{ background: "rgb(var(--t-bg))" }}>
+        <span className="text-terminal-dim text-sm">Loading SmartTerm...</span>
+      </div>
+    );
+  }
+
+  // First-run wizard
+  if (needsSetup) {
+    return <SetupWizard onComplete={() => window.location.reload()} />;
+  }
 
   return (
     <div className={`h-screen flex flex-col overflow-hidden ${theme === "light" ? "theme-light" : ""}`}>

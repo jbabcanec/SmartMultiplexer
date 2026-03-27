@@ -35,13 +35,6 @@
       "!node_modules/.vite/**/*",
       "!node_modules/.cache/**/*"
     ],
-    "extraResources": [
-      {
-        "from": ".env",
-        "to": ".env",
-        "filter": ["**/*"]
-      }
-    ],
     "win": {
       "target": [
         "nsis",

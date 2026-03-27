@@ -3,6 +3,7 @@ import { ptyManager } from "../pty/manager.js";
 import { BossAgent } from "../agents/boss.js";
 import { TelegramBridge } from "../agents/telegram.js";
 import { createLogger } from "../lib/logger.js";
+import { loadConfig } from "../lib/config.js";
 
 const log = createLogger("socket");
 
@@ -12,22 +13,24 @@ let telegram: TelegramBridge | null = null;
 export function getTelegram() { return telegram; }
 
 function getBossAgent(): BossAgent | null {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) return null;
+  const config = loadConfig();
+  if (!config.anthropicApiKey) return null;
   if (!bossAgent) {
-    bossAgent = new BossAgent(apiKey);
+    bossAgent = new BossAgent(config.anthropicApiKey);
     telegram?.setBossAgent(bossAgent);
   }
   return bossAgent;
 }
 
 export function setupSocket(io: Server) {
+  const config = loadConfig();
+
   // Initialize Boss agent immediately so Telegram works from the start
   const agent = getBossAgent();
 
   // Set up Telegram bridge if configured
-  const botToken = process.env.TELEGRAM_BOT_TOKEN;
-  const chatId = process.env.TELEGRAM_CHAT_ID;
+  const botToken = config.telegramBotToken;
+  const chatId = config.telegramChatId;
   if (botToken && chatId) {
     telegram = new TelegramBridge(botToken, chatId, (channel) => {
       io.emit("boss:channel", { channel });
@@ -181,14 +184,12 @@ export function setupSocket(io: Server) {
     socket.on("boss:message", async ({ text }: { text: string }, callback?: Function) => {
       log.info(`Boss message (app): "${text.slice(0, 80)}${text.length > 80 ? "..." : ""}"`);
 
-      // Switch to app channel
       telegram?.switchTo("app");
 
       const agent = getBossAgent();
       if (!agent) {
-        log.error("ANTHROPIC_API_KEY not set");
         socket.emit("boss:error", {
-          error: "ANTHROPIC_API_KEY not set. Add it to your environment and restart the server.",
+          error: "No API key configured. Open Settings to add your Anthropic API key.",
         });
         if (callback) callback({ ok: false, error: "No API key" });
         return;

@@ -9,6 +9,7 @@ import { readdirSync, statSync } from "fs";
 import { join } from "path";
 import { ptyManager } from "../pty/manager.js";
 import { createLogger } from "../lib/logger.js";
+import { loadConfig } from "../lib/config.js";
 
 const log = createLogger("boss");
 
@@ -16,13 +17,16 @@ const MODEL = "claude-sonnet-4-5-20250929";
 const MAX_TOKENS = 4096;
 const MAX_TOOL_ROUNDS = 25;
 const MAX_TERMINALS = 8;
-const WORKSPACE_ROOT = process.env.WORKSPACE_ROOT || "C:\\Users\\josep\\Dropbox\\Babcanec Works";
+// Lazy-loaded from config
+function getWorkspaceRoot(): string {
+  return loadConfig().workspaceRoot || "C:\\Users";
+}
 
 const SYSTEM_PROMPT = `You are Boss, a terse terminal supervisor. No markdown formatting — plain text only. No **bold**, no *italic*, no bullet lists. Write short, direct sentences.
 
 You control terminals in SmartTerm. You can list them, read output, send commands, spawn workers, kill them, and notify the user.
 
-Workspace root: ${WORKSPACE_ROOT}
+Workspace root: provided in terminal_state context below
 All projects live as subdirectories of this root.
 
 Rules:
@@ -202,11 +206,12 @@ async function executeTool(
       case "list_projects": {
         try {
           const results: string[] = [];
-          const topDirs = readdirSync(WORKSPACE_ROOT).filter((e) => {
-            try { return statSync(join(WORKSPACE_ROOT, e)).isDirectory(); } catch { return false; }
+          const root = getWorkspaceRoot();
+          const topDirs = readdirSync(root).filter((e) => {
+            try { return statSync(join(root, e)).isDirectory(); } catch { return false; }
           });
           for (const top of topDirs) {
-            const topPath = join(WORKSPACE_ROOT, top);
+            const topPath = join(root, top);
             results.push(`[${top}]`);
             try {
               const subs = readdirSync(topPath).filter((e) => {
@@ -417,7 +422,7 @@ export class BossAgent {
     // Build user message with injected context
     let content = userText;
     const ctx = this.getTerminalContext();
-    content += `\n\n<terminal_state>\n${ctx}\n</terminal_state>`;
+    content += `\n\n<terminal_state>\nWorkspace root: ${getWorkspaceRoot()}\n${ctx}\n</terminal_state>`;
 
     if (this.eventLog.length > 0) {
       content += `\n\n<recent_events>\n${this.eventLog.join("\n")}\n</recent_events>`;
