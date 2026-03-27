@@ -5,6 +5,8 @@ import type {
   ToolUseBlock,
   ToolResultBlockParam,
 } from "@anthropic-ai/sdk/resources/messages";
+import { readdirSync, statSync } from "fs";
+import { join } from "path";
 import { ptyManager } from "../pty/manager.js";
 import { createLogger } from "../lib/logger.js";
 
@@ -14,29 +16,36 @@ const MODEL = "claude-sonnet-4-5-20250929";
 const MAX_TOKENS = 4096;
 const MAX_TOOL_ROUNDS = 25;
 const MAX_TERMINALS = 8;
+const WORKSPACE_ROOT = process.env.WORKSPACE_ROOT || "C:\\Users\\josep\\Dropbox\\Babcanec Works\\Programming";
 
-const SYSTEM_PROMPT = `You are Boss, the AI supervisor inside SmartTerm, a terminal multiplexer application.
+const SYSTEM_PROMPT = `You are Boss, a terse terminal supervisor. No markdown formatting — plain text only. No **bold**, no *italic*, no bullet lists. Write short, direct sentences.
 
-You can see and control all open terminals. Users rely on you to:
-- Monitor running processes across terminals
-- Send commands to terminals
-- Spawn new worker terminals (including Claude Code sessions for complex tasks)
-- Coordinate multi-terminal workflows
-- Provide status summaries when asked
+You control terminals in SmartTerm. You can list them, read output, send commands, spawn workers, kill them, and notify the user.
 
-Important behaviors:
-- When asked about terminal state, use list_terminals and get_terminal_output to get fresh data.
-- When spawning a Claude Code worker, use spawn_worker with a clear task description.
-- Be concise. Users see your responses in a narrow sidebar panel. Keep answers short.
-- When showing terminal output, use short code blocks. Don't dump raw output — summarize it.
-- SAFETY: Before killing terminals, confirm with the user first ("Kill Terminal 1?"). Never kill all terminals without explicit confirmation.
-- SAFETY: Maximum ${MAX_TERMINALS} terminals allowed. Check current count before spawning.
-- SAFETY: Never spawn more than 2 terminals in a single turn without asking the user.
+Workspace root: ${WORKSPACE_ROOT}
+All projects live as subdirectories of this root.
+
+Rules:
+- Plain text only. No markdown. No emojis.
+- Be extremely brief. One or two sentences max unless asked for detail.
+- When spawning a terminal: if user says a project name like "smartterm" or "sumo", use list_projects to find the exact path under the workspace root. Only ask if truly ambiguous.
+- When spawning Claude Code workers: pass --dangerously-skip-permissions if the user asks for no permissions, bypass, dangerous mode, or skip permissions.
+- Before killing terminals, confirm with the user first.
+- Max ${MAX_TERMINALS} terminals. Never spawn more than 2 in one turn without asking.
 - When a terminal is killed, it is fully removed from the grid.
-- Use notify_user to send desktop notifications when long tasks finish or errors occur.
-- When the user says "talk to Terminal X" or "tell Terminal X to ...", use send_command to type into that terminal.`;
+- Use notify_user for long tasks finishing or errors.
+- "talk to Terminal X" or "tell Terminal X" = use send_command.`;
 
 const TOOLS: Tool[] = [
+  {
+    name: "list_projects",
+    description:
+      "List available project directories under the workspace root. Use this to resolve fuzzy project names to real paths.",
+    input_schema: {
+      type: "object" as const,
+      properties: {},
+    },
+  },
   {
     name: "list_terminals",
     description:
@@ -92,10 +101,14 @@ const TOOLS: Tool[] = [
         },
         cwd: {
           type: "string",
-          description: "Working directory (defaults to server cwd)",
+          description: "Working directory — MUST be specified. Ask the user if not provided.",
+        },
+        dangerously_skip_permissions: {
+          type: "boolean",
+          description: "Pass --dangerously-skip-permissions to Claude Code. Use when user asks for no permissions, bypass, or dangerous mode.",
         },
       },
-      required: ["task"],
+      required: ["task", "cwd"],
     },
   },
   {
@@ -107,6 +120,26 @@ const TOOLS: Tool[] = [
         terminal_id: { type: "string", description: "The terminal UUID" },
       },
       required: ["terminal_id"],
+    },
+  },
+  {
+    name: "rename_terminal",
+    description: "Rename a terminal or give it an alias.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        terminal_id: { type: "string", description: "The terminal UUID" },
+        name: { type: "string", description: "New name or alias" },
+      },
+      required: ["terminal_id", "name"],
+    },
+  },
+  {
+    name: "kill_all_terminals",
+    description: "Kill and remove ALL terminals. Only use when user explicitly asks to stop everything.",
+    input_schema: {
+      type: "object" as const,
+      properties: {},
     },
   },
   {
@@ -166,6 +199,19 @@ async function executeTool(
 ): Promise<{ result: string; isError: boolean }> {
   try {
     switch (name) {
+      case "list_projects": {
+        try {
+          const entries = readdirSync(WORKSPACE_ROOT)
+            .filter((e) => {
+              try { return statSync(join(WORKSPACE_ROOT, e)).isDirectory(); } catch { return false; }
+            })
+            .map((e) => `${e} -> ${join(WORKSPACE_ROOT, e)}`);
+          return { result: entries.join("\n") || "No projects found.", isError: false };
+        } catch (err: any) {
+          return { result: `Cannot read workspace: ${err.message}`, isError: true };
+        }
+      }
+
       case "list_terminals": {
         const list = ptyManager.list().map((t) => ({
           id: t.id,
@@ -209,20 +255,20 @@ async function executeTool(
         const currentCount = ptyManager.list().length;
         if (currentCount >= MAX_TERMINALS) {
           return {
-            result: `Cannot spawn: already at max capacity (${MAX_TERMINALS} terminals). Kill some first.`,
+            result: `Cannot spawn: at max capacity (${MAX_TERMINALS}). Kill some first.`,
             isError: true,
           };
         }
         const task = input.task as string;
-        const name = (input.name as string) || `Worker: ${task.slice(0, 30)}`;
-        const cwd = (input.cwd as string) || process.cwd();
+        const workerName = (input.name as string) || `Worker: ${task.slice(0, 30)}`;
+        const cwd = input.cwd as string;
+        const skipPerms = input.dangerously_skip_permissions as boolean;
         const info = ptyManager.spawn({
-          name,
+          name: workerName,
           cwd,
           shell: process.platform === "win32" ? "powershell.exe" : undefined,
         });
 
-        // Wait for shell to be ready
         try {
           await ptyManager.waitForOutput(info.id, /PS [A-Z]:|[$#]\s*$/i, 15000);
         } catch {
@@ -230,7 +276,8 @@ async function executeTool(
         }
 
         const escapedTask = task.replace(/"/g, '`"');
-        ptyManager.write(info.id, `claude "${escapedTask}"\r`);
+        const permsFlag = skipPerms ? " --dangerously-skip-permissions" : "";
+        ptyManager.write(info.id, `claude${permsFlag} "${escapedTask}"\r`);
 
         return {
           result: JSON.stringify({ terminal_id: info.id, name: info.name }),
@@ -244,6 +291,23 @@ async function executeTool(
         if (!info) return { result: `Terminal ${id} not found.`, isError: true };
         ptyManager.remove(id);
         return { result: `Killed and removed "${info.name}".`, isError: false };
+      }
+
+      case "rename_terminal": {
+        const id = input.terminal_id as string;
+        const newName = input.name as string;
+        const info = ptyManager.getInfo(id);
+        if (!info) return { result: `Terminal ${id} not found.`, isError: true };
+        ptyManager.rename(id, newName);
+        return { result: `Renamed to "${newName}".`, isError: false };
+      }
+
+      case "kill_all_terminals": {
+        const all = ptyManager.list();
+        if (all.length === 0) return { result: "No terminals to kill.", isError: false };
+        const names = all.map((t) => t.name);
+        for (const t of all) ptyManager.remove(t.id);
+        return { result: `Killed ${names.length}: ${names.join(", ")}`, isError: false };
       }
 
       case "notify_user": {

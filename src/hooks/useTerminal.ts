@@ -11,7 +11,6 @@ export function useTerminal(terminalId: string | null) {
   const [container, setContainer] = useState<HTMLDivElement | null>(null);
   const zoom = useTerminalStore((s) => s.zoom);
 
-  // Callback ref — fires when the div mounts
   const containerRef = useCallback((node: HTMLDivElement | null) => {
     setContainer(node);
   }, []);
@@ -24,6 +23,10 @@ export function useTerminal(terminalId: string | null) {
     if (!container || !terminalId) return;
 
     const socket = getSocket();
+
+    // Track last sent dimensions to avoid redundant resizes
+    let lastCols = 0;
+    let lastRows = 0;
 
     const term = new Terminal({
       theme: {
@@ -68,7 +71,7 @@ export function useTerminal(terminalId: string | null) {
       if (e.ctrlKey && e.key === "c" && term.hasSelection()) {
         navigator.clipboard.writeText(term.getSelection());
         term.clearSelection();
-        return false; // prevent sending SIGINT
+        return false;
       }
       if (e.ctrlKey && e.shiftKey && e.key === "C") {
         if (term.hasSelection()) {
@@ -86,30 +89,45 @@ export function useTerminal(terminalId: string | null) {
       return true;
     });
 
-    // Fit reliably: wait for container to have actual dimensions, then subscribe.
-    // Subscribing before fit causes scrollback to render at wrong size.
-    const doFit = () => {
+    // Fit and send resize only if dimensions actually changed
+    const fitAndResize = () => {
       try {
         fitAddon.fit();
+      } catch {
+        return;
+      }
+      if (term.cols !== lastCols || term.rows !== lastRows) {
+        lastCols = term.cols;
+        lastRows = term.rows;
         socket.emit("terminal:resize", {
           id: terminalId,
           cols: term.cols,
           rows: term.rows,
         });
-      } catch {}
+      }
     };
 
-    // Use multiple frames + a short delay to ensure layout is stable
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        doFit();
-        term.focus();
-        // Only subscribe AFTER fit so scrollback replays at the correct size
+    // Wait for container to have real pixel dimensions before doing anything
+    let subscribed = false;
+    const waitForSize = () => {
+      const rect = container.getBoundingClientRect();
+      if (rect.width < 10 || rect.height < 10) {
+        // Container not laid out yet, wait
+        requestAnimationFrame(waitForSize);
+        return;
+      }
+      // Container has real size — fit, resize PTY, THEN subscribe
+      fitAndResize();
+      term.focus();
+      // Small delay to let PTY process the resize before we get output
+      setTimeout(() => {
         socket.emit("terminal:subscribe", terminalId);
-        // One more fit after scrollback has been written
-        setTimeout(doFit, 200);
-      });
-    });
+        subscribed = true;
+        // One final fit after scrollback
+        setTimeout(fitAndResize, 300);
+      }, 100);
+    };
+    requestAnimationFrame(waitForSize);
 
     const onData = ({ id, data }: { id: string; data: string }) => {
       if (id === terminalId) term.write(data);
@@ -121,22 +139,13 @@ export function useTerminal(terminalId: string | null) {
       socket.emit("terminal:input", { id: terminalId, data });
     });
 
-    // Resize handling — debounce and skip if container has no size
+    // Resize handling — debounce 150ms, skip zero-size, deduplicate
     let resizeTimer: ReturnType<typeof setTimeout>;
     const observer = new ResizeObserver((entries) => {
       const entry = entries[0];
       if (!entry || entry.contentRect.width === 0 || entry.contentRect.height === 0) return;
       clearTimeout(resizeTimer);
-      resizeTimer = setTimeout(() => {
-        try {
-          fitAddon.fit();
-          socket.emit("terminal:resize", {
-            id: terminalId,
-            cols: term.cols,
-            rows: term.rows,
-          });
-        } catch {}
-      }, 50);
+      resizeTimer = setTimeout(fitAndResize, 150);
     });
     observer.observe(container);
 
@@ -154,9 +163,9 @@ export function useTerminal(terminalId: string | null) {
 
   // React to zoom changes
   useEffect(() => {
-    if (termRef.current) {
+    if (termRef.current && fitRef.current) {
       termRef.current.options.fontSize = zoom;
-      try { fitRef.current?.fit(); } catch {}
+      try { fitRef.current.fit(); } catch {}
     }
   }, [zoom]);
 

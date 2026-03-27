@@ -57,10 +57,17 @@ export function useBossSocket() {
       useTerminalStore.getState().clearBossMessages();
     });
 
+    // Telegram user messages mirrored to app
+    socket.on("boss:telegram-user-message", ({ text }: { text: string }) => {
+      const s = useTerminalStore.getState();
+      s.addBossUserMessage(`[Telegram] ${text}`);
+    });
+
     return () => {
       socket.off("boss:chunk");
       socket.off("boss:error");
       socket.off("boss:cleared");
+      socket.off("boss:telegram-user-message");
     };
   }, []);
 }

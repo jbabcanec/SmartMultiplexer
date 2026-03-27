@@ -91,7 +91,7 @@ export default function TerminalGrid() {
                 onDragOver={(e) => { e.preventDefault(); setOverIdx(i); }}
                 onDrop={() => handleDrop(i)}
                 onDragEnd={() => { setDragIdx(null); setOverIdx(null); }}
-                className={`min-h-0 min-w-0 ${
+                className={`min-h-0 min-w-0 overflow-hidden ${
                   dragIdx === i ? "opacity-40" : ""
                 } ${overIdx === i && dragIdx !== i ? "ring-1 ring-terminal-accent/40 rounded-lg" : ""}`}
               >

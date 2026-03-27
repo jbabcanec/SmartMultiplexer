@@ -9,6 +9,7 @@ import apiRoutes from "./api/routes.js";
 import { setupSocket } from "./api/socket.js";
 import { getDb } from "./db/index.js";
 import { createLogger } from "./lib/logger.js";
+import { ptyManager } from "./pty/manager.js";
 
 const log = createLogger("server");
 
@@ -46,6 +47,16 @@ setupSocket(io);
 log.info("Socket.IO handlers registered");
 
 log.info("ANTHROPIC_API_KEY", process.env.ANTHROPIC_API_KEY ? "set" : "NOT SET");
+
+// Kill all PTY processes on shutdown so we don't leave orphans
+function shutdown() {
+  log.info("Shutting down — killing all terminals");
+  ptyManager.killAll();
+  process.exit(0);
+}
+process.on("SIGINT", shutdown);
+process.on("SIGTERM", shutdown);
+process.on("exit", () => ptyManager.killAll());
 
 httpServer.listen(PORT, () => {
   log.info(`SmartTerm v2.0 listening on http://localhost:${PORT}`);

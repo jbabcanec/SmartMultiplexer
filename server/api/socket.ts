@@ -1,13 +1,46 @@
 import type { Server, Socket } from "socket.io";
 import { ptyManager } from "../pty/manager.js";
 import { BossAgent } from "../agents/boss.js";
+import { TelegramBridge } from "../agents/telegram.js";
 import { createLogger } from "../lib/logger.js";
 
 const log = createLogger("socket");
 
 let bossAgent: BossAgent | null = null;
+let telegram: TelegramBridge | null = null;
+
+function getBossAgent(): BossAgent | null {
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) return null;
+  if (!bossAgent) {
+    bossAgent = new BossAgent(apiKey);
+    telegram?.setBossAgent(bossAgent);
+  }
+  return bossAgent;
+}
 
 export function setupSocket(io: Server) {
+  // Initialize Boss agent immediately so Telegram works from the start
+  const agent = getBossAgent();
+
+  // Set up Telegram bridge if configured
+  const botToken = process.env.TELEGRAM_BOT_TOKEN;
+  const chatId = process.env.TELEGRAM_CHAT_ID;
+  if (botToken && chatId) {
+    telegram = new TelegramBridge(botToken, chatId, (channel) => {
+      io.emit("boss:channel", { channel });
+    });
+    if (agent) telegram.setBossAgent(agent);
+    // Mirror Telegram conversation to app UI
+    telegram.onUserMessageForApp = (text) => {
+      io.emit("boss:telegram-user-message", { text });
+    };
+    telegram.onChunkForApp = (chunk) => {
+      io.emit("boss:chunk", chunk);
+    };
+    telegram.startPolling();
+  }
+
   // Forward all PtyManager lifecycle events to Socket.IO clients
   ptyManager.on("data", (id: string, data: string) => {
     io.to(`term:${id}`).emit("terminal:data", { id, data });
@@ -36,6 +69,11 @@ export function setupSocket(io: Server) {
   io.on("connection", (socket: Socket) => {
     log.info(`Client connected (${socket.id})`);
     socket.emit("terminal:list", ptyManager.list());
+
+    // Tell client current channel
+    if (telegram) {
+      socket.emit("boss:channel", { channel: telegram.activeChannel });
+    }
 
     // --- Terminal handlers ---
 
@@ -87,9 +125,13 @@ export function setupSocket(io: Server) {
     // --- Boss agent handlers ---
 
     socket.on("boss:message", async ({ text }: { text: string }, callback?: Function) => {
-      log.info(`Boss message: "${text.slice(0, 80)}${text.length > 80 ? "..." : ""}"`);
-      const apiKey = process.env.ANTHROPIC_API_KEY;
-      if (!apiKey) {
+      log.info(`Boss message (app): "${text.slice(0, 80)}${text.length > 80 ? "..." : ""}"`);
+
+      // Switch to app channel
+      telegram?.switchTo("app");
+
+      const agent = getBossAgent();
+      if (!agent) {
         log.error("ANTHROPIC_API_KEY not set");
         socket.emit("boss:error", {
           error: "ANTHROPIC_API_KEY not set. Add it to your environment and restart the server.",
@@ -98,14 +140,10 @@ export function setupSocket(io: Server) {
         return;
       }
 
-      if (!bossAgent) {
-        bossAgent = new BossAgent(apiKey);
-      }
-
       if (callback) callback({ ok: true });
 
       try {
-        await bossAgent.processMessage(text, (chunk) => {
+        await agent.processMessage(text, (chunk) => {
           socket.emit("boss:chunk", chunk);
         });
       } catch (err: any) {

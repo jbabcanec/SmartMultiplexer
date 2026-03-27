@@ -27,8 +27,8 @@ export class PtyManager extends EventEmitter {
     const name = config.name || `Terminal ${this.nextTerminalNumber()}`;
     const shell = config.shell || DEFAULT_SHELL;
     const cwd = config.cwd || process.cwd();
-    const cols = config.cols || 120;
-    const rows = config.rows || 30;
+    const cols = config.cols || 80;
+    const rows = config.rows || 24;
 
     const p = pty.spawn(shell, [], {
       name: "xterm-256color",
@@ -110,6 +110,15 @@ export class PtyManager extends EventEmitter {
     this.terminals.delete(id);
     log.info(`Removed "${name}" (${id.slice(0, 8)})`);
     this.emit("removed", id);
+  }
+
+  /** Kill all terminals — called on server shutdown */
+  killAll() {
+    for (const [id] of this.terminals) {
+      this.kill(id);
+    }
+    this.terminals.clear();
+    log.info("All terminals killed");
   }
 
   getScrollback(id: string): string {

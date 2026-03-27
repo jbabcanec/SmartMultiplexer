@@ -5,17 +5,17 @@ export default {
     extend: {
       colors: {
         terminal: {
-          bg: "#0a0e14",
-          surface: "#111820",
-          border: "#1e2530",
-          text: "#c5cdd9",
-          dim: "#6b7a8d",
-          accent: "#39bae6",
-          green: "#7fd962",
-          red: "#ff6b6b",
-          yellow: "#ffb454",
-          purple: "#c792ea",
-          orange: "#ff8f40",
+          bg: "var(--t-bg)",
+          surface: "var(--t-surface)",
+          border: "var(--t-border)",
+          text: "var(--t-text)",
+          dim: "var(--t-dim)",
+          accent: "var(--t-accent)",
+          green: "var(--t-green)",
+          red: "var(--t-red)",
+          yellow: "var(--t-yellow)",
+          purple: "var(--t-purple)",
+          orange: "var(--t-orange)",
         },
       },
       fontFamily: {

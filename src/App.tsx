@@ -2,10 +2,12 @@ import { Component, type ReactNode } from "react";
 import { useSocket } from "./hooks/useSocket";
 import { useShortcuts } from "./hooks/useShortcuts";
 import { useBossSocket } from "./hooks/useBossSocket";
+import { useTerminalStore } from "./stores/terminalStore";
 import TopBar from "./components/TopBar";
 import BookmarkSidebar from "./components/BookmarkSidebar";
 import TerminalGrid from "./components/TerminalGrid";
 import BossChat from "./components/BossChat";
+import SettingsModal from "./components/SettingsModal";
 
 class ErrorBoundary extends Component<
   { children: ReactNode },
@@ -34,14 +36,17 @@ function AppInner() {
   useShortcuts();
   useBossSocket();
 
+  const theme = useTerminalStore((s) => s.settings.theme);
+
   return (
-    <div className="h-screen flex flex-col overflow-hidden">
+    <div className={`h-screen flex flex-col overflow-hidden ${theme === "light" ? "theme-light" : ""}`}>
       <TopBar />
       <div className="flex-1 flex overflow-hidden">
         <BookmarkSidebar />
         <TerminalGrid />
         <BossChat />
       </div>
+      <SettingsModal />
     </div>
   );
 }

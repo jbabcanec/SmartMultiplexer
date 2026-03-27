@@ -42,6 +42,35 @@ export interface BossMessage {
   timestamp: number;
 }
 
+export type ThemeMode = "dark" | "light";
+
+export interface AppSettings {
+  theme: ThemeMode;
+  workspaceRoot: string;
+  telegramEnabled: boolean;
+  defaultShell: string;
+}
+
+const SETTINGS_KEY = "smartterm-settings";
+
+function loadSettings(): AppSettings {
+  try {
+    const stored = JSON.parse(localStorage.getItem(SETTINGS_KEY) || "{}");
+    return {
+      theme: stored.theme || "dark",
+      workspaceRoot: stored.workspaceRoot || "C:\\Users\\josep\\Dropbox\\Babcanec Works\\Programming",
+      telegramEnabled: stored.telegramEnabled ?? true,
+      defaultShell: stored.defaultShell || "powershell.exe",
+    };
+  } catch {
+    return { theme: "dark", workspaceRoot: "", telegramEnabled: true, defaultShell: "powershell.exe" };
+  }
+}
+
+function saveSettings(s: AppSettings) {
+  localStorage.setItem(SETTINGS_KEY, JSON.stringify(s));
+}
+
 interface TerminalStore {
   // Terminal state
   terminals: TerminalInfo[];
@@ -52,8 +81,12 @@ interface TerminalStore {
   minimizedIds: string[];
   bookmarkOpen: boolean;
   bossPanelOpen: boolean;
+  settingsOpen: boolean;
   lastLines: Record<string, string>;
   zoom: number;
+
+  // Settings
+  settings: AppSettings;
 
   // Boss chat state
   bossMessages: BossMessage[];
@@ -73,6 +106,8 @@ interface TerminalStore {
   setBossPanelOpen: (v: boolean) => void;
   setLastLine: (id: string, line: string) => void;
   setZoom: (z: number) => void;
+  setSettingsOpen: (v: boolean) => void;
+  updateSettings: (patch: Partial<AppSettings>) => void;
 
   // Boss chat actions
   addBossUserMessage: (text: string) => void;
@@ -100,8 +135,12 @@ export const useTerminalStore = create<TerminalStore>((set) => ({
   minimizedIds: [],
   bookmarkOpen: true,
   bossPanelOpen: false,
+  settingsOpen: false,
   lastLines: {},
   zoom: 13,
+
+  // Settings
+  settings: loadSettings(),
 
   // Boss chat state
   bossMessages: [],
@@ -152,6 +191,13 @@ export const useTerminalStore = create<TerminalStore>((set) => ({
   setLastLine: (id, line) =>
     set((s) => ({ lastLines: { ...s.lastLines, [id]: line } })),
   setZoom: (zoom) => set({ zoom: Math.max(8, Math.min(28, zoom)) }),
+  setSettingsOpen: (settingsOpen) => set({ settingsOpen }),
+  updateSettings: (patch) =>
+    set((s) => {
+      const settings = { ...s.settings, ...patch };
+      saveSettings(settings);
+      return { settings };
+    }),
 
   // Boss chat actions
   addBossUserMessage: (text) =>
