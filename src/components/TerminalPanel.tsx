@@ -17,21 +17,14 @@ export default function TerminalPanel({ terminal }: { terminal: TerminalInfo }) 
 
   const [editing, setEditing] = useState(false);
   const [editName, setEditName] = useState(terminal.name);
-  const [confirmClose, setConfirmClose] = useState(false);
-
   const handleFocus = useCallback(() => {
     setFocused(terminal.id);
     focus();
   }, [terminal.id, setFocused, focus]);
 
   const handleClose = useCallback(() => {
-    if (terminal.status === "running" && !confirmClose) {
-      setConfirmClose(true);
-      setTimeout(() => setConfirmClose(false), 2000);
-      return;
-    }
     removeTerminal(terminal.id);
-  }, [terminal.id, terminal.status, confirmClose]);
+  }, [terminal.id]);
 
   const handleRename = useCallback(() => {
     if (editName.trim() && editName !== terminal.name) {
@@ -96,9 +89,7 @@ export default function TerminalPanel({ terminal }: { terminal: TerminalInfo }) 
           </button>
           <button
             onClick={(e) => { e.stopPropagation(); handleClose(); }}
-            className={`w-5 h-5 flex items-center justify-center rounded ${
-              confirmClose ? "text-terminal-red" : "text-terminal-dim hover:text-terminal-red"
-            }`}
+            className="w-5 h-5 flex items-center justify-center rounded text-terminal-dim hover:text-terminal-red"
           >
             <svg className="w-3 h-3" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5">
               <line x1="3" y1="3" x2="9" y2="9" />
@@ -112,7 +103,7 @@ export default function TerminalPanel({ terminal }: { terminal: TerminalInfo }) 
       <div
         ref={containerRef}
         onClick={(e) => { e.stopPropagation(); focus(); }}
-        className="flex-1"
+        className="flex-1 min-h-0 overflow-hidden"
         style={{ background: "#0a0e14" }}
       />
     </div>

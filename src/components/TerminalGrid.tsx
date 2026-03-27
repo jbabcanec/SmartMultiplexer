@@ -14,13 +14,11 @@ export default function TerminalGrid() {
   const [dragIdx, setDragIdx] = useState<number | null>(null);
   const [overIdx, setOverIdx] = useState<number | null>(null);
 
-  const bossTerminalId = useTerminalStore((s) => s.bossTerminalId);
-
   const ordered = useMemo(() => {
     return order
       .map((id) => terminals.find((t) => t.id === id))
-      .filter((t): t is NonNullable<typeof t> => t != null && t.id !== bossTerminalId);
-  }, [terminals, order, bossTerminalId]);
+      .filter((t): t is NonNullable<typeof t> => t != null);
+  }, [terminals, order]);
 
   const visible = useMemo(
     () => ordered.filter((t) => !minimizedIds.includes(t.id)),

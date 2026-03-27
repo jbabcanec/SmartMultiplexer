@@ -86,21 +86,30 @@ export function useTerminal(terminalId: string | null) {
       return true;
     });
 
-    // Fit after a frame so the DOM has settled
-    requestAnimationFrame(() => {
+    // Fit reliably: wait for container to have actual dimensions, then subscribe.
+    // Subscribing before fit causes scrollback to render at wrong size.
+    const doFit = () => {
       try {
         fitAddon.fit();
-        term.focus();
         socket.emit("terminal:resize", {
           id: terminalId,
           cols: term.cols,
           rows: term.rows,
         });
       } catch {}
-    });
+    };
 
-    // Subscribe to output
-    socket.emit("terminal:subscribe", terminalId);
+    // Use multiple frames + a short delay to ensure layout is stable
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        doFit();
+        term.focus();
+        // Only subscribe AFTER fit so scrollback replays at the correct size
+        socket.emit("terminal:subscribe", terminalId);
+        // One more fit after scrollback has been written
+        setTimeout(doFit, 200);
+      });
+    });
 
     const onData = ({ id, data }: { id: string; data: string }) => {
       if (id === terminalId) term.write(data);
@@ -112,9 +121,11 @@ export function useTerminal(terminalId: string | null) {
       socket.emit("terminal:input", { id: terminalId, data });
     });
 
-    // Resize handling
+    // Resize handling — debounce and skip if container has no size
     let resizeTimer: ReturnType<typeof setTimeout>;
-    const observer = new ResizeObserver(() => {
+    const observer = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (!entry || entry.contentRect.width === 0 || entry.contentRect.height === 0) return;
       clearTimeout(resizeTimer);
       resizeTimer = setTimeout(() => {
         try {
@@ -125,7 +136,7 @@ export function useTerminal(terminalId: string | null) {
             rows: term.rows,
           });
         } catch {}
-      }, 100);
+      }, 50);
     });
     observer.observe(container);
 

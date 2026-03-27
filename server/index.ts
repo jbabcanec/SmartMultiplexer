@@ -1,3 +1,4 @@
+import "dotenv/config";
 import express from "express";
 import cors from "cors";
 import { createServer } from "http";
@@ -7,6 +8,9 @@ import { fileURLToPath } from "url";
 import apiRoutes from "./api/routes.js";
 import { setupSocket } from "./api/socket.js";
 import { getDb } from "./db/index.js";
+import { createLogger } from "./lib/logger.js";
+
+const log = createLogger("server");
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = parseInt(process.env.PORT || "4800");
@@ -35,12 +39,14 @@ app.get("*", (_req, res) => {
 
 // Initialize DB (groups only)
 getDb();
+log.info("Database initialized");
 
 // Socket.IO
 setupSocket(io);
+log.info("Socket.IO handlers registered");
+
+log.info("ANTHROPIC_API_KEY", process.env.ANTHROPIC_API_KEY ? "set" : "NOT SET");
 
 httpServer.listen(PORT, () => {
-  console.log(`
-  SmartTerm v2.0 | http://localhost:${PORT}
-  `);
+  log.info(`SmartTerm v2.0 listening on http://localhost:${PORT}`);
 });

@@ -1,9 +1,11 @@
 import type { Server, Socket } from "socket.io";
-import type { TerminalInfo } from "../pty/types.js";
-import { writeFileSync } from "fs";
-import { join } from "path";
-import { tmpdir } from "os";
 import { ptyManager } from "../pty/manager.js";
+import { BossAgent } from "../agents/boss.js";
+import { createLogger } from "../lib/logger.js";
+
+const log = createLogger("socket");
+
+let bossAgent: BossAgent | null = null;
 
 export function setupSocket(io: Server) {
   // Forward all PtyManager lifecycle events to Socket.IO clients
@@ -15,7 +17,7 @@ export function setupSocket(io: Server) {
     io.emit("terminal:exit", { id, exitCode });
   });
 
-  ptyManager.on("created", (info: TerminalInfo) => {
+  ptyManager.on("created", (info) => {
     io.emit("terminal:created", info);
   });
 
@@ -32,7 +34,10 @@ export function setupSocket(io: Server) {
   });
 
   io.on("connection", (socket: Socket) => {
+    log.info(`Client connected (${socket.id})`);
     socket.emit("terminal:list", ptyManager.list());
+
+    // --- Terminal handlers ---
 
     socket.on("terminal:create", (config, callback) => {
       try {
@@ -79,85 +84,42 @@ export function setupSocket(io: Server) {
       ptyManager.setGroup(id, groupName);
     });
 
-    // Boss terminal — spawns an interactive claude session with terminal context
-    socket.on("boss:spawn", async (callback) => {
-      try {
-        const info = ptyManager.spawn({
-          name: "Boss",
-          shell: "powershell.exe",
+    // --- Boss agent handlers ---
+
+    socket.on("boss:message", async ({ text }: { text: string }, callback?: Function) => {
+      log.info(`Boss message: "${text.slice(0, 80)}${text.length > 80 ? "..." : ""}"`);
+      const apiKey = process.env.ANTHROPIC_API_KEY;
+      if (!apiKey) {
+        log.error("ANTHROPIC_API_KEY not set");
+        socket.emit("boss:error", {
+          error: "ANTHROPIC_API_KEY not set. Add it to your environment and restart the server.",
         });
+        if (callback) callback({ ok: false, error: "No API key" });
+        return;
+      }
 
-        if (callback) callback({ ok: true, id: info.id });
+      if (!bossAgent) {
+        bossAgent = new BossAgent(apiKey);
+      }
 
-        // Write context to a temp file so claude can read it cleanly
-        const contextPath = join(tmpdir(), `smartterm-boss-${info.id.slice(0, 8)}.md`);
+      if (callback) callback({ ok: true });
 
-        // Wait for PowerShell to be ready (PS prompt appears)
-        await ptyManager.waitForOutput(info.id, /PS [A-Z]:/i);
-
-        const summaries = ptyManager.getSummaries(info.id);
-        const context = [
-          `# SmartTerm Boss Context`,
-          ``,
-          `You are the Boss agent in SmartTerm, a terminal multiplexer.`,
-          `You can see what all other terminals are doing and help coordinate work.`,
-          ``,
-          `## API (localhost:4800)`,
-          ``,
-          `You can interact with terminals using these PowerShell commands:`,
-          ``,
-          "```powershell",
-          `# List all terminals`,
-          `Invoke-RestMethod http://localhost:4800/api/terminals`,
-          ``,
-          `# Get last N lines of output from a terminal`,
-          `Invoke-RestMethod "http://localhost:4800/api/terminals/<ID>/output?lines=50"`,
-          ``,
-          `# Send a command to a terminal (include \\r\\n to press Enter)`,
-          `Invoke-RestMethod -Method Post -Uri http://localhost:4800/api/terminals/<ID>/input -ContentType "application/json" -Body '{"input":"dir\\r\\n"}'`,
-          ``,
-          `# Create a new terminal`,
-          `Invoke-RestMethod -Method Post -Uri http://localhost:4800/api/terminals -ContentType "application/json" -Body '{"name":"My Task"}'`,
-          "```",
-          ``,
-          `## Current Terminal State`,
-          ``,
-          summaries,
-        ].join("\n");
-
-        writeFileSync(contextPath, context, "utf-8");
-
-        // Start claude with the context file as the first message
-        const escaped = contextPath.replace(/\\/g, "\\\\");
-        ptyManager.write(
-          info.id,
-          `claude "Read ${escaped} for context about the terminals I have open, then give me a brief status summary."\r`
-        );
+      try {
+        await bossAgent.processMessage(text, (chunk) => {
+          socket.emit("boss:chunk", chunk);
+        });
       } catch (err: any) {
-        if (callback) callback({ ok: false, error: err.message });
+        socket.emit("boss:error", { error: err.message });
       }
     });
 
-    // Boss refresh — writes updated context file and sends message to running Claude session
-    socket.on("boss:refresh", ({ bossId }: { bossId: string }) => {
-      const summaries = ptyManager.getSummaries(bossId);
-      const contextPath = join(tmpdir(), `smartterm-boss-${bossId.slice(0, 8)}.md`);
-      const context = [
-        `# SmartTerm Boss Context (refreshed)`,
-        ``,
-        `## Current Terminal State`,
-        ``,
-        summaries,
-      ].join("\n");
+    socket.on("boss:clear", () => {
+      bossAgent?.clearHistory();
+      socket.emit("boss:cleared");
+    });
 
-      writeFileSync(contextPath, context, "utf-8");
-
-      // This gets typed into the running Claude session as a user message
-      const escaped = contextPath.replace(/\\/g, "\\\\");
-      ptyManager.write(
-        bossId,
-        `Read ${escaped} for updated terminal state. What changed? Anything need attention?\r`
-      );
+    socket.on("boss:abort", () => {
+      bossAgent?.abort();
     });
   });
 }

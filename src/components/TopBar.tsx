@@ -1,5 +1,5 @@
 import { useTerminalStore } from "../stores/terminalStore";
-import { createTerminal, getSocket } from "../hooks/useSocket";
+import { createTerminal } from "../hooks/useSocket";
 
 export default function TopBar() {
   const terminals = useTerminalStore((s) => s.terminals);
@@ -7,8 +7,6 @@ export default function TopBar() {
   const setBookmarkOpen = useTerminalStore((s) => s.setBookmarkOpen);
   const bossPanelOpen = useTerminalStore((s) => s.bossPanelOpen);
   const setBossPanelOpen = useTerminalStore((s) => s.setBossPanelOpen);
-  const bossTerminalId = useTerminalStore((s) => s.bossTerminalId);
-  const setBossTerminalId = useTerminalStore((s) => s.setBossTerminalId);
   const zoom = useTerminalStore((s) => s.zoom);
   const setZoom = useTerminalStore((s) => s.setZoom);
 
@@ -47,16 +45,7 @@ export default function TopBar() {
 
       <div className="flex items-center gap-2" style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}>
         <button
-          onClick={() => {
-            const opening = !bossPanelOpen;
-            setBossPanelOpen(opening);
-            // Spawn boss terminal if opening and none exists
-            if (opening && !bossTerminalId) {
-              getSocket().emit("boss:spawn", (res: { ok: boolean; id?: string }) => {
-                if (res?.ok && res.id) setBossTerminalId(res.id);
-              });
-            }
-          }}
+          onClick={() => setBossPanelOpen(!bossPanelOpen)}
           className={`px-2 py-1 rounded text-xs transition-colors ${
             bossPanelOpen
               ? "bg-terminal-purple/20 text-terminal-purple border border-terminal-purple/30"

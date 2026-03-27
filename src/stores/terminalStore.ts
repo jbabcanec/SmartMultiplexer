@@ -23,7 +23,27 @@ export interface Session {
   savedAt: number;
 }
 
+// --- Boss chat types ---
+
+export interface BossToolCall {
+  id: string;
+  name: string;
+  input: string;
+  result?: string;
+  isError?: boolean;
+  status: "running" | "done";
+}
+
+export interface BossMessage {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+  toolCalls?: BossToolCall[];
+  timestamp: number;
+}
+
 interface TerminalStore {
+  // Terminal state
   terminals: TerminalInfo[];
   order: string[];
   groups: Group[];
@@ -34,8 +54,12 @@ interface TerminalStore {
   bossPanelOpen: boolean;
   lastLines: Record<string, string>;
   zoom: number;
-  bossTerminalId: string | null;
 
+  // Boss chat state
+  bossMessages: BossMessage[];
+  bossStreaming: boolean;
+
+  // Terminal actions
   setTerminals: (t: TerminalInfo[]) => void;
   addTerminal: (t: TerminalInfo) => void;
   removeTerminal: (id: string) => void;
@@ -49,10 +73,25 @@ interface TerminalStore {
   setBossPanelOpen: (v: boolean) => void;
   setLastLine: (id: string, line: string) => void;
   setZoom: (z: number) => void;
-  setBossTerminalId: (id: string | null) => void;
+
+  // Boss chat actions
+  addBossUserMessage: (text: string) => void;
+  startBossAssistantMessage: () => void;
+  appendBossText: (text: string) => void;
+  addBossToolCall: (id: string, name: string) => void;
+  appendBossToolInput: (toolUseId: string, json: string) => void;
+  setBossToolResult: (toolUseId: string, result: string, isError: boolean) => void;
+  finishBossStreaming: () => void;
+  clearBossMessages: () => void;
+}
+
+let msgCounter = 0;
+function nextMsgId() {
+  return `msg-${++msgCounter}`;
 }
 
 export const useTerminalStore = create<TerminalStore>((set) => ({
+  // Terminal state
   terminals: [],
   order: [],
   groups: [],
@@ -63,8 +102,12 @@ export const useTerminalStore = create<TerminalStore>((set) => ({
   bossPanelOpen: false,
   lastLines: {},
   zoom: 13,
-  bossTerminalId: null,
 
+  // Boss chat state
+  bossMessages: [],
+  bossStreaming: false,
+
+  // Terminal actions
   setTerminals: (terminals) =>
     set((s) => ({
       terminals,
@@ -109,7 +152,82 @@ export const useTerminalStore = create<TerminalStore>((set) => ({
   setLastLine: (id, line) =>
     set((s) => ({ lastLines: { ...s.lastLines, [id]: line } })),
   setZoom: (zoom) => set({ zoom: Math.max(8, Math.min(28, zoom)) }),
-  setBossTerminalId: (bossTerminalId) => set({ bossTerminalId }),
+
+  // Boss chat actions
+  addBossUserMessage: (text) =>
+    set((s) => ({
+      bossMessages: [
+        ...s.bossMessages,
+        { id: nextMsgId(), role: "user", content: text, timestamp: Date.now() },
+      ],
+    })),
+
+  startBossAssistantMessage: () =>
+    set((s) => ({
+      bossStreaming: true,
+      bossMessages: [
+        ...s.bossMessages,
+        {
+          id: nextMsgId(),
+          role: "assistant",
+          content: "",
+          toolCalls: [],
+          timestamp: Date.now(),
+        },
+      ],
+    })),
+
+  appendBossText: (text) =>
+    set((s) => {
+      const msgs = [...s.bossMessages];
+      const last = msgs[msgs.length - 1];
+      if (last?.role === "assistant") {
+        msgs[msgs.length - 1] = { ...last, content: last.content + text };
+      }
+      return { bossMessages: msgs };
+    }),
+
+  addBossToolCall: (id, name) =>
+    set((s) => {
+      const msgs = [...s.bossMessages];
+      const last = msgs[msgs.length - 1];
+      if (last?.role === "assistant") {
+        const toolCalls = [...(last.toolCalls || [])];
+        toolCalls.push({ id, name, input: "", status: "running" });
+        msgs[msgs.length - 1] = { ...last, toolCalls };
+      }
+      return { bossMessages: msgs };
+    }),
+
+  appendBossToolInput: (toolUseId, json) =>
+    set((s) => {
+      const msgs = [...s.bossMessages];
+      const last = msgs[msgs.length - 1];
+      if (last?.role === "assistant" && last.toolCalls) {
+        const toolCalls = last.toolCalls.map((tc) =>
+          tc.id === toolUseId ? { ...tc, input: tc.input + json } : tc
+        );
+        msgs[msgs.length - 1] = { ...last, toolCalls };
+      }
+      return { bossMessages: msgs };
+    }),
+
+  setBossToolResult: (toolUseId, result, isError) =>
+    set((s) => {
+      const msgs = [...s.bossMessages];
+      const last = msgs[msgs.length - 1];
+      if (last?.role === "assistant" && last.toolCalls) {
+        const toolCalls = last.toolCalls.map((tc) =>
+          tc.id === toolUseId ? { ...tc, result, isError, status: "done" as const } : tc
+        );
+        msgs[msgs.length - 1] = { ...last, toolCalls };
+      }
+      return { bossMessages: msgs };
+    }),
+
+  finishBossStreaming: () => set({ bossStreaming: false }),
+
+  clearBossMessages: () => set({ bossMessages: [], bossStreaming: false }),
 }));
 
 // --- Session persistence (localStorage) ---

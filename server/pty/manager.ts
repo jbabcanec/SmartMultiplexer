@@ -2,6 +2,9 @@ import * as pty from "node-pty";
 import { EventEmitter } from "events";
 import { randomUUID } from "crypto";
 import type { PtyConfig, TerminalInfo, ManagedTerminal } from "./types.js";
+import { createLogger } from "../lib/logger.js";
+
+const log = createLogger("pty");
 
 const SCROLLBACK_BYTES = 100 * 1024; // 100KB ring buffer per terminal
 const DEFAULT_SHELL = process.platform === "win32" ? "powershell.exe" : process.env.SHELL || "/bin/bash";
@@ -51,6 +54,7 @@ export class PtyManager extends EventEmitter {
 
     const managed: ManagedTerminal = { info, process: p, buffer: "" };
     this.terminals.set(id, managed);
+    log.info(`Spawned "${name}" (${id.slice(0, 8)}) shell=${shell} cwd=${cwd}`);
 
     p.onData((data) => {
       let buf = managed.buffer + data;
@@ -62,6 +66,7 @@ export class PtyManager extends EventEmitter {
     });
 
     p.onExit(({ exitCode }) => {
+      log.info(`Exited "${name}" (${id.slice(0, 8)}) code=${exitCode}`);
       managed.info.status = "exited";
       managed.info.exitCode = exitCode;
       managed.process = null;
@@ -100,8 +105,10 @@ export class PtyManager extends EventEmitter {
 
   /** Destroy entirely — process, buffer, all memory of it */
   remove(id: string) {
+    const name = this.terminals.get(id)?.info.name || id.slice(0, 8);
     this.kill(id);
     this.terminals.delete(id);
+    log.info(`Removed "${name}" (${id.slice(0, 8)})`);
     this.emit("removed", id);
   }
 

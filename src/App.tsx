@@ -1,10 +1,11 @@
 import { Component, type ReactNode } from "react";
 import { useSocket } from "./hooks/useSocket";
 import { useShortcuts } from "./hooks/useShortcuts";
+import { useBossSocket } from "./hooks/useBossSocket";
 import TopBar from "./components/TopBar";
 import BookmarkSidebar from "./components/BookmarkSidebar";
 import TerminalGrid from "./components/TerminalGrid";
-import BossPanel from "./components/BossPanel";
+import BossChat from "./components/BossChat";
 
 class ErrorBoundary extends Component<
   { children: ReactNode },
@@ -31,6 +32,7 @@ class ErrorBoundary extends Component<
 function AppInner() {
   useSocket();
   useShortcuts();
+  useBossSocket();
 
   return (
     <div className="h-screen flex flex-col overflow-hidden">
@@ -38,7 +40,7 @@ function AppInner() {
       <div className="flex-1 flex overflow-hidden">
         <BookmarkSidebar />
         <TerminalGrid />
-        <BossPanel />
+        <BossChat />
       </div>
     </div>
   );
