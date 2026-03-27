@@ -32,7 +32,9 @@ Important behaviors:
 - SAFETY: Before killing terminals, confirm with the user first ("Kill Terminal 1?"). Never kill all terminals without explicit confirmation.
 - SAFETY: Maximum ${MAX_TERMINALS} terminals allowed. Check current count before spawning.
 - SAFETY: Never spawn more than 2 terminals in a single turn without asking the user.
-- When a terminal is killed, it is fully removed from the grid.`;
+- When a terminal is killed, it is fully removed from the grid.
+- Use notify_user to send desktop notifications when long tasks finish or errors occur.
+- When the user says "talk to Terminal X" or "tell Terminal X to ...", use send_command to type into that terminal.`;
 
 const TOOLS: Tool[] = [
   {
@@ -98,13 +100,26 @@ const TOOLS: Tool[] = [
   },
   {
     name: "kill_terminal",
-    description: "Stop a running terminal process. The terminal stays visible but marked as exited.",
+    description: "Kill and remove a terminal from the grid entirely.",
     input_schema: {
       type: "object" as const,
       properties: {
         terminal_id: { type: "string", description: "The terminal UUID" },
       },
       required: ["terminal_id"],
+    },
+  },
+  {
+    name: "notify_user",
+    description:
+      "Send a desktop notification to the user. Use this when a long-running task finishes, something errors out, or you need the user's attention.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        title: { type: "string", description: "Notification title" },
+        body: { type: "string", description: "Notification body text" },
+      },
+      required: ["title", "body"],
     },
   },
 ];
@@ -117,6 +132,7 @@ export interface BossChunk {
     | "tool_use_start"
     | "tool_input_delta"
     | "tool_result"
+    | "notification"
     | "done"
     | "error";
   text?: string;
@@ -126,6 +142,8 @@ export interface BossChunk {
   result?: string;
   isError?: boolean;
   error?: string;
+  title?: string;
+  body?: string;
 }
 
 export type ChunkCallback = (chunk: BossChunk) => void;
@@ -143,7 +161,8 @@ function stripAnsi(s: string): string {
 
 async function executeTool(
   name: string,
-  input: Record<string, unknown>
+  input: Record<string, unknown>,
+  onChunk?: ChunkCallback
 ): Promise<{ result: string; isError: boolean }> {
   try {
     switch (name) {
@@ -225,6 +244,30 @@ async function executeTool(
         if (!info) return { result: `Terminal ${id} not found.`, isError: true };
         ptyManager.remove(id);
         return { result: `Killed and removed "${info.name}".`, isError: false };
+      }
+
+      case "notify_user": {
+        const title = input.title as string;
+        const body = input.body as string;
+        // Desktop notification via client
+        onChunk?.({ type: "notification", title, body });
+        // Telegram notification
+        const botToken = process.env.TELEGRAM_BOT_TOKEN;
+        const chatId = process.env.TELEGRAM_CHAT_ID;
+        if (botToken && chatId) {
+          try {
+            const text = `*${title}*\n${body}`;
+            await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ chat_id: chatId, text, parse_mode: "Markdown" }),
+            });
+            log.info("Telegram notification sent");
+          } catch (err: any) {
+            log.warn("Telegram notification failed", err.message);
+          }
+        }
+        return { result: "Notification sent.", isError: false };
       }
 
       default:
@@ -366,7 +409,8 @@ export class BossAgent {
             log.info(`Tool call: ${block.name}`, block.input);
             const { result, isError } = await executeTool(
               block.name,
-              block.input as Record<string, unknown>
+              block.input as Record<string, unknown>,
+              onChunk
             );
             if (isError) log.warn(`Tool error: ${block.name}`, result);
             onChunk({

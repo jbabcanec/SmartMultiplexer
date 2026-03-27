@@ -24,6 +24,17 @@ export function useBossSocket() {
         case "tool_result":
           s.setBossToolResult(chunk.toolUseId, chunk.result, chunk.isError);
           break;
+        case "notification":
+          if (Notification.permission === "granted") {
+            new Notification(chunk.title || "SmartTerm", { body: chunk.body });
+          } else if (Notification.permission !== "denied") {
+            Notification.requestPermission().then((perm) => {
+              if (perm === "granted") {
+                new Notification(chunk.title || "SmartTerm", { body: chunk.body });
+              }
+            });
+          }
+          break;
         case "done":
           s.finishBossStreaming();
           break;
