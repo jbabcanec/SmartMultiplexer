@@ -58,9 +58,9 @@ export class TelegramBridge {
   /** Call this when terminal output looks like it needs attention */
   async notifyIfAway(terminalName: string, terminalId: string, reason: string) {
     if (this.activeChannel !== "telegram") return; // user is at the app
-    // Don't spam — once per terminal per 60 seconds
+    // Don't spam — once per terminal per 5 minutes
     const lastTime = this.lastNotifiedTerminal.get(terminalId) || 0;
-    if (Date.now() - lastTime < 60000) return;
+    if (Date.now() - lastTime < 300000) return;
     this.lastNotifiedTerminal.set(terminalId, Date.now());
     await this.send(`[${terminalName}] ${reason}`);
   }

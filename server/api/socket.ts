@@ -51,16 +51,15 @@ export function setupSocket(io: Server) {
   const recentOutput = new Map<string, string>();
   const idleTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
+  // Only match real "waiting for input" prompts — NOT general output
   const ATTENTION_PATTERNS = [
-    /\?\s*$/,                          // ends with ?
     /\[y\/n\]/i,                       // [y/N] [Y/n]
     /\(yes\/no\)/i,                    // (yes/no)
-    /press enter|press any key/i,      // waiting for keypress
-    /do you want to/i,                 // Claude Code prompts
-    /should I/i,                       // Claude asking
-    /permission/i,                     // permission prompts
-    /error:|failed|exception/i,        // errors
-    /EACCES|ENOENT|EPERM/i,           // system errors
+    /\[Y\/n\]/,                        // explicit Y/n
+    /press enter to continue/i,        // explicit "press enter"
+    /Do you want to proceed/i,         // explicit proceed prompt
+    /trust this folder/i,              // Claude Code trust prompt
+    /Are you sure/i,                   // confirmation prompt
   ];
 
   function checkForAttention(id: string) {
@@ -97,10 +96,10 @@ export function setupSocket(io: Server) {
     const updated = (existing + data).slice(-4000); // keep last 4KB
     recentOutput.set(id, updated);
 
-    // Reset idle timer — check 5 seconds after last output
+    // Reset idle timer — check 15 seconds after last output (truly idle)
     const timer = idleTimers.get(id);
     if (timer) clearTimeout(timer);
-    idleTimers.set(id, setTimeout(() => checkForAttention(id), 5000));
+    idleTimers.set(id, setTimeout(() => checkForAttention(id), 15000));
   });
 
   ptyManager.on("exit", (id: string, exitCode: number) => {
